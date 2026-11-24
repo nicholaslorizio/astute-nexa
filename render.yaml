@@ -1,0 +1,17 @@
+# One-click cloud hosting on Render (https://render.com). Free plans sleep when idle,
+# and data on a free plan is lost on redeploy, so a paid disk is recommended for real teams.
+services:
+  - type: web
+    name: astute-nexa
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/state
+    envVars:
+      - key: NEXA_SECURE_COOKIES
+        value: "1"
+      - key: NEXA_TRUST_PROXY
+        value: "1"
+    disk:
+      name: nexa-data
+      mountPath: /data
+      sizeGB: 5
