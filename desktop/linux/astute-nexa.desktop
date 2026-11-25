@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Astute Nexa
+GenericName=Office suite
+Comment=Documents, spreadsheets, slides, chat, mail, calendar and files
+Exec=astute-nexa
+Icon=astute-nexa
+Terminal=false
+Categories=Office;WordProcessor;Spreadsheet;Presentation;
+Keywords=docx;xlsx;pptx;office;documents;spreadsheet;slides;
+StartupNotify=true
