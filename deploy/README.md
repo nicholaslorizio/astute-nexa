@@ -1,5 +1,7 @@
 # Astute Nexa online
 
+No server? [RENDER.md](RENDER.md) runs it on Render's free plan with no card.
+
 The online version runs many workspaces on one server. People open a link, make a workspace or join one, and chat, call and share files with their team in the browser.
 
 It is free to host on Oracle Cloud's Always Free tier: one Arm server with 2 cores and 12 GB of memory, 200 GB of disk and 10 TB of traffic a month, at no charge. Oracle asks for a card to confirm who you are and does not charge it unless you upgrade the account.

@@ -71,9 +71,12 @@ docker run -d -p 4580:4580 -v nexa-data:/data --name nexa astute-nexa
 
 ### 4. Host it in the cloud
 
-This repo includes a `render.yaml` blueprint for [Render](https://render.com). Create a Blueprint from this repo and Render builds the Docker image, adds HTTPS and a disk for your data.
+The online version, where anyone can make their own workspace from a link, runs with `NEXA_CLOUD=1`. Two ways to host it:
 
-To run the online version, where anyone can make their own workspace from a link, set `NEXA_CLOUD=1`. [deploy/README.md](deploy/README.md) sets it up on a free Oracle Cloud server with HTTPS, nightly backups, and Google and Apple sign-in ready to switch on.
+- **Render, free, no card:** [deploy/RENDER.md](deploy/RENDER.md). The `render.yaml` blueprint sets it up, and workspaces are kept in a private GitHub repo of yours because Render's free plan has no lasting disk.
+- **Your own server:** [deploy/README.md](deploy/README.md) sets it up on a Linux server with HTTPS and nightly backups.
+
+Both have Google and Apple sign-in ready to switch on.
 
 ## Sign up
 
@@ -134,6 +137,8 @@ Set these as environment variables before you start Nexa. All are optional.
 | `NEXA_WORKSPACE_GB` | `1` | With `NEXA_CLOUD`, storage for each workspace. |
 | `NEXA_GOOGLE_CLIENT_ID`, `NEXA_GOOGLE_CLIENT_SECRET` | none | Turn on Continue with Google. |
 | `NEXA_APPLE_CLIENT_ID`, `NEXA_APPLE_TEAM_ID`, `NEXA_APPLE_KEY_ID`, `NEXA_APPLE_PRIVATE_KEY_FILE` | none | Turn on Continue with Apple. |
+| `NEXA_GITHUB_REPO`, `NEXA_GITHUB_TOKEN` | none | With `NEXA_CLOUD`, keep workspaces in a private GitHub repo, for hosts whose disk is wiped on restart. See [deploy/RENDER.md](deploy/RENDER.md). |
+| `NEXA_MIN_FREE_MB` | `2048` | With `NEXA_CLOUD`, stop making new workspaces when free disk drops below this. |
 
 ## Security
 
