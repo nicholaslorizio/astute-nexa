@@ -1,17 +1,30 @@
-# One-click cloud hosting on Render (https://render.com). Free plans sleep when idle,
-# and data on a free plan is lost on redeploy, so a paid disk is recommended for real teams.
+# The online version of Astute Nexa on Render's free plan (https://render.com), where anyone can make
+# their own workspace from a link. Free plans have no lasting disk, so workspaces are kept in a private
+# GitHub repo of yours (NEXA_GITHUB_REPO and NEXA_GITHUB_TOKEN). Steps: deploy/RENDER.md.
+# For a single team on a paid plan instead, remove NEXA_CLOUD and the GitHub settings, set plan to
+# starter, and add a disk mounted at /data.
 services:
   - type: web
     name: astute-nexa
     runtime: docker
-    plan: starter
-    healthCheckPath: /api/state
+    plan: free
+    healthCheckPath: /cloud/config
     envVars:
+      - key: NEXA_CLOUD
+        value: "1"
       - key: NEXA_SECURE_COOKIES
         value: "1"
       - key: NEXA_TRUST_PROXY
         value: "1"
-    disk:
-      name: nexa-data
-      mountPath: /data
-      sizeGB: 5
+      - key: NEXA_MAX_WORKSPACES
+        value: "30"
+      - key: NEXA_WORKSPACE_GB
+        value: "0.05"
+      - key: NEXA_MAX_UPLOAD_MB
+        value: "10"
+      - key: NEXA_MIN_FREE_MB
+        value: "200"
+      - key: NEXA_GITHUB_REPO
+        sync: false
+      - key: NEXA_GITHUB_TOKEN
+        sync: false
