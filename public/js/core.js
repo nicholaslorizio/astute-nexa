@@ -290,22 +290,51 @@ async function copyText(t) {
 }
 
 // ---------- realtime ----------
-const RT = Nexa.rt = { ws: null, handlers: new Map(), queue: [], retry: 0, watching: new Set() };
+const RT = Nexa.rt = { ws: null, handlers: new Map(), queue: [], retry: 0, watching: new Set(), seen: 0, timer: null };
 RT.on = (type, fn) => { if (!RT.handlers.has(type)) RT.handlers.set(type, new Set()); RT.handlers.get(type).add(fn); return () => RT.handlers.get(type).delete(fn); };
-RT.send = (msg) => { if (RT.ws && RT.ws.readyState === 1) RT.ws.send(JSON.stringify(msg)); else RT.queue.push(msg); };
+// Call signals and pings are only useful right now; after a reconnect the call starts fresh, so don't save them up.
+const LIVE_ONLY = new Set(['call.signal', 'ping', 'typing']);
+RT.send = (msg) => { if (RT.ws && RT.ws.readyState === 1) RT.ws.send(JSON.stringify(msg)); else if (!LIVE_ONLY.has(msg.t)) RT.queue.push(msg); };
 RT.connect = () => {
+  clearTimeout(RT.timer); RT.timer = null;
   if (RT.ws && RT.ws.readyState <= 1) return;
   const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
   RT.ws = ws;
-  ws.onopen = () => { RT.retry = 0; for (const id of RT.watching) ws.send(JSON.stringify({ t: 'file.watch', id })); while (RT.queue.length) ws.send(JSON.stringify(RT.queue.shift())); RT.emit({ t: 'connected' }); };
-  ws.onmessage = (e) => { let m; try { m = JSON.parse(e.data); } catch { return; } RT.emit(m); };
-  ws.onclose = (e) => { RT.emit({ t: 'disconnected' }); if (e.code === 4001 || !Nexa.state.user) return; RT.retry = Math.min(RT.retry + 1, 6); setTimeout(RT.connect, 500 * 2 ** RT.retry); };
+  ws.onopen = () => { RT.retry = 0; RT.seen = Date.now(); for (const id of RT.watching) ws.send(JSON.stringify({ t: 'file.watch', id })); while (RT.queue.length) ws.send(JSON.stringify(RT.queue.shift())); RT.emit({ t: 'connected' }); };
+  ws.onmessage = (e) => { RT.seen = Date.now(); let m; try { m = JSON.parse(e.data); } catch { return; } RT.emit(m); };
+  ws.onclose = (e) => {
+    if (RT.ws === ws) RT.ws = null;
+    RT.emit({ t: 'disconnected' });
+    if (e.code === 4001 || !Nexa.state.user) return;
+    RT.retry = Math.min(RT.retry + 1, 4);
+    clearTimeout(RT.timer); RT.timer = setTimeout(RT.connect, 500 * 2 ** RT.retry);
+  };
+};
+// A connection that went quiet (sleeping laptop, phone switching networks, a server restart) can look
+// open while nothing gets through. Drop it and connect again instead of waiting for the browser to notice.
+RT.revive = () => {
+  const w = RT.ws;
+  if (w) { RT.ws = null; w.onclose = w.onmessage = null; try { w.close(); } catch { /* already closed */ } RT.emit({ t: 'disconnected' }); }
+  if (Nexa.state.user) { RT.retry = 0; RT.connect(); }
 };
 RT.emit = (m) => { for (const fn of RT.handlers.get(m.t) || []) { try { fn(m); } catch (err) { console.error(err); } } for (const fn of RT.handlers.get('*') || []) fn(m); };
-RT.close = () => { if (RT.ws) { const w = RT.ws; RT.ws = null; w.onclose = null; w.close(); } };
+RT.close = () => { clearTimeout(RT.timer); if (RT.ws) { const w = RT.ws; RT.ws = null; w.onclose = null; w.close(); } };
 RT.watch = (id) => { RT.watching.add(id); RT.send({ t: 'file.watch', id }); };
 RT.unwatch = (id) => { RT.watching.delete(id); RT.send({ t: 'file.unwatch', id }); };
-setInterval(() => RT.send({ t: 'ping' }), 25000);
+// Ping, and reconnect if nothing at all comes back. Timers in background tabs can run late, so this only
+// reconnects when the server stayed silent after a ping, never just because a timer was slow.
+RT.probe = () => {
+  const w = RT.ws, sent = Date.now();
+  if (!w || w.readyState !== 1) return;
+  w.send(JSON.stringify({ t: 'ping' }));
+  setTimeout(() => { if (RT.ws === w && w.readyState === 1 && RT.seen < sent) RT.revive(); }, 10000);
+};
+setInterval(RT.probe, 20000);
+addEventListener('online', () => { if (!Nexa.state.user) return; if (!RT.ws || RT.ws.readyState > 1) { RT.retry = 0; RT.connect(); } else RT.probe(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !Nexa.state.user) return;
+  if (!RT.ws || RT.ws.readyState > 1) { RT.retry = 0; RT.connect(); } else RT.probe();
+});
 RT.on('hello', (m) => { Nexa.state.online = new Set(m.online); refreshDots(); });
 RT.on('presence', (m) => { if (m.online) Nexa.state.online.add(m.user_id); else Nexa.state.online.delete(m.user_id); refreshDots(); });
 function refreshDots() { $$('[data-dot]').forEach((d) => d.classList.toggle('on', Nexa.state.online.has(d.dataset.dot))); }

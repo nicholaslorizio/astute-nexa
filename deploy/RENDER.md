@@ -45,6 +45,28 @@ Limits of the free plan:
 4. Click **Apply**. The first build takes a few minutes.
 5. Open the service's address and add `/cloud/` to make the first workspace.
 
+## Make calls work on every network (free TURN relay)
+
+Huddle calls connect people's browsers directly. That works on most home Wi-Fi, but many mobile
+networks, offices and hotels block direct connections, and then a call needs a TURN relay in the
+middle. Render can't run one, so Nexa uses Cloudflare's. Cloudflare's docs say the first 1,000 GB
+each month is free, which is many hours of video calls.
+
+1. Sign up or sign in at <https://dash.cloudflare.com>.
+2. Open **Realtime** (<https://dash.cloudflare.com/?to=/:account/calls>) and create a **TURN key**.
+3. Copy the two values it shows: the **TURN Token ID** and the **API token**.
+4. In Render, open the service, then **Environment**, and add:
+   - `NEXA_TURN_CF_KEY_ID`: the TURN Token ID
+   - `NEXA_TURN_CF_API_TOKEN`: the API token
+5. Save the changes. Render redeploys the service.
+
+Nexa keeps the API token on the server and hands each signed-in person a login that expires after a day.
+To check it works, add `NEXA_ICE_POLICY` = `relay` for a few minutes: every call then goes through
+Cloudflare, so a call that connects proves the relay works. Remove it afterwards.
+
+Any other TURN service works too: set `NEXA_TURN_URLS`, `NEXA_TURN_USERNAME` and
+`NEXA_TURN_CREDENTIAL` instead.
+
 ## Google and Apple sign-in
 
 Both stay off until their keys are set. Follow the Google and Apple parts of
@@ -67,5 +89,8 @@ and come back when it starts.
   can't write to `nexa-data`. Make a new one as in step 2 and replace it under **Environment**.
 - **The log says the GitHub repo is empty:** the data repo has no README. Add any file to it on GitHub.
 - **The log says it can't find the branch:** check `NEXA_GITHUB_REPO` and that the token was given that repo.
+- **A call says "Can't connect":** one of the two networks blocks direct calls. Set up the TURN relay
+  above. If it's set up already, look in the log for a line saying Nexa could not get TURN logins
+  from Cloudflare, which means the TURN values in **Environment** are wrong.
 - **"This server is full for now":** 30 workspaces exist. Raise `NEXA_MAX_WORKSPACES`, keeping in
   mind that every workspace is saved to the data repo.

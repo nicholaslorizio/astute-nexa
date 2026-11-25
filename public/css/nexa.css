@@ -328,6 +328,10 @@ table.sheet tr.frozen th, table.sheet tr.frozen td { position: sticky; top: 27px
 .tile video { width: 100%; height: 100%; object-fit: cover; }
 .tile .name { position: absolute; left: 10px; bottom: 8px; color: #fff; font-size: 13px; font-weight: 600; background: rgba(0, 0, 0, .45); padding: 2px 8px; border-radius: 6px; }
 .tile.speaking { box-shadow: 0 0 0 3px var(--ok); }
+.tile .state { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 86%; text-align: center; color: #fff; font-size: 13px; line-height: 1.4; background: rgba(0, 0, 0, .55); padding: 6px 12px; border-radius: 8px; }
+.tile .state:empty { display: none; }
+.tile .state.bad { background: rgba(160, 30, 40, .85); }
+.tile .tap { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); background: #fff; color: #111; border-radius: 20px; }
 .call-bar { display: flex; justify-content: center; gap: 10px; padding: 14px; }
 .call-bar .btn { background: #1E2545; border-color: #2B3460; color: #fff; height: 44px; min-width: 44px; border-radius: 22px; }
 .call-bar .btn.off { background: #5A1418; border-color: #7A2026; }
