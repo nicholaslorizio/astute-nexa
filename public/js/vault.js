@@ -254,7 +254,7 @@
       f.kind !== 'folder' && { label: 'Version history', icon: 'history', onClick: () => history(f) },
       f.kind === 'upload' && edit && { label: 'Upload a new version', icon: 'upload', onClick: () => replace(f) },
       own && { label: f.starred ? 'Unstar' : 'Star', icon: 'star', onClick: async () => { await api.patch('/api/files/' + f.id, { starred: !f.starred }).catch(fail); load(); } },
-      { label: 'Copy link for teammates', icon: 'copy', onClick: () => copyText(location.origin + '/' + (f.kind === 'upload' ? '#/vault/' + (f.parent_id || '') : fileRoute(f))) },
+      { label: 'Copy link for teammates', icon: 'copy', onClick: () => copyText(location.origin + (Nexa.state.linkBase || '') + '/' + (f.kind === 'upload' ? '#/vault/' + (f.parent_id || '') : fileRoute(f))) },
       own && '-',
       own && { label: 'Delete', icon: 'trash', danger: true, onClick: () => bulk([f.id], { trashed: true }, 'Moved to Trash. You can restore it from Trash.') },
     ]);
@@ -343,7 +343,7 @@
 
   // ---------- sync to computers and phones ----------
   async function syncDialog() {
-    const dav = location.origin + '/dav/';
+    const dav = location.origin + (Nexa.state.linkBase || '') + '/dav/';
     const email = Nexa.state.user.email;
     const https = location.protocol === 'https:';
     let pw = null;

@@ -13,6 +13,7 @@
     Nexa.state.workspace = s.workspace;
     Nexa.state.user = s.user;
     Nexa.state.sourceUrl = s.sourceUrl; Nexa.state.version = s.version;
+    Nexa.state.linkBase = s.linkBase || ''; Nexa.state.sso = s.sso || []; Nexa.state.cloud = s.cloud || null;
     const hash = location.hash.slice(1);
     const [, joinTok] = hash.match(PUBLIC[0]) || [];
     const [, inviteTok] = hash.match(PUBLIC[1]) || [];

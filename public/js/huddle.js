@@ -270,7 +270,7 @@
       C.el = h('div', { class: 'call' }, h('div', { class: 'row', style: { color: '#fff', padding: '10px 16px' } }, h('b', {}, label), h('span', { class: 'muted small', 'data-count': '' }), h('span', { class: 'grow' }),
         h('button', { class: 'btn ghost sm', style: { color: '#fff' }, onclick: () => C.el.classList.toggle('mini') }, 'Minimize')), grid,
         h('div', { class: 'call-bar' }, micB, camB, shareB, btn('hand', 'Raise hand', () => { C.hand = !C.hand; this.state(); toast(C.hand ? 'Hand raised' : 'Hand lowered'); }),
-          btn('link', 'Copy call link', () => Nexa.copyText(location.origin + '/#/huddle/' + cid)), h('button', { class: 'btn leave', onclick: () => this.leave() }, icon('phone', 18), 'Leave')));
+          btn('link', 'Copy call link', () => Nexa.copyText(location.origin + (Nexa.state.linkBase || '') + '/#/huddle/' + cid)), h('button', { class: 'btn leave', onclick: () => this.leave() }, icon('phone', 18), 'Leave')));
       Object.assign(C, { grid, micB, camB, shareB });
       document.body.append(C.el);
       this.tile('me', 'You', stream, true);

@@ -73,6 +73,8 @@ docker run -d -p 4580:4580 -v nexa-data:/data --name nexa astute-nexa
 
 This repo includes a `render.yaml` blueprint for [Render](https://render.com). Create a Blueprint from this repo and Render builds the Docker image, adds HTTPS and a disk for your data.
 
+To run the online version, where anyone can make their own workspace from a link, set `NEXA_CLOUD=1`. [deploy/README.md](deploy/README.md) sets it up on a free Oracle Cloud server with HTTPS, nightly backups, and Google and Apple sign-in ready to switch on.
+
 ## Sign up
 
 1. Open Nexa. The first person to arrive sets up the workspace: your name, email and a password. That makes you the owner.
@@ -126,6 +128,12 @@ Set these as environment variables before you start Nexa. All are optional.
 | `NEXA_MAX_UPLOAD_MB` | `100` | Largest file one person can upload. |
 | `NEXA_QUOTA_GB` | none | Storage limit for each person. |
 | `NEXA_SOURCE_URL` | this repo | The source code link shown in the app, which the AGPL asks you to offer. Point it at your copy if you change the code. |
+| `NEXA_CLOUD` | off | Set to `1` to host many workspaces on one server, each opened at `/w/<name>`. |
+| `NEXA_PUBLIC_URL` | none | The site's `https://` address, needed for Google and Apple sign-in. |
+| `NEXA_MAX_WORKSPACES` | `100` | With `NEXA_CLOUD`, the most workspaces the server will hold. |
+| `NEXA_WORKSPACE_GB` | `1` | With `NEXA_CLOUD`, storage for each workspace. |
+| `NEXA_GOOGLE_CLIENT_ID`, `NEXA_GOOGLE_CLIENT_SECRET` | none | Turn on Continue with Google. |
+| `NEXA_APPLE_CLIENT_ID`, `NEXA_APPLE_TEAM_ID`, `NEXA_APPLE_KEY_ID`, `NEXA_APPLE_PRIVATE_KEY_FILE` | none | Turn on Continue with Apple. |
 
 ## Security
 

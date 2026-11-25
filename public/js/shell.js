@@ -228,7 +228,8 @@
             h('p', { class: 'muted small', style: { marginTop: 0 } }, 'Anyone with your team link can make an account in seconds.'),
             h('a', { class: 'btn', href: '#/people' }, icon('link', 16), 'Get the team link')) : null)),
       h('footer', { class: 'home-foot muted small' }, `Astute Nexa ${Nexa.state.version || ''} · Free software under AGPL-3.0`,
-        Nexa.state.sourceUrl ? [' · ', h('a', { href: Nexa.state.sourceUrl, target: '_blank', rel: 'noopener' }, 'Source code')] : null));
+        Nexa.state.sourceUrl ? [' · ', h('a', { href: Nexa.state.sourceUrl, target: '_blank', rel: 'noopener' }, 'Source code')] : null,
+        Nexa.state.cloud ? [' · ', h('a', { href: '/w/' }, 'Switch workspace')] : null));
     view.append(wrap);
     try {
       const r = await api.get('/api/files?view=recent');
@@ -269,7 +270,7 @@
     if (admin) {
       const s = await api.get('/api/settings').catch(() => null);
       if (s) {
-        const link = location.origin + '/#/join/' + s.join_token;
+        const link = location.origin + (Nexa.state.linkBase || '') + '/#/join/' + s.join_token;
         const linkInput = h('input', { class: 'input', readonly: true, value: link });
         const toggle = h('input', { type: 'checkbox', checked: s.join_enabled, disabled: me.role !== 'owner' });
         const domain = h('input', { class: 'input', placeholder: 'Any email (or type company.com)', value: s.join_domain, disabled: me.role !== 'owner' });

@@ -29,7 +29,8 @@ function createServer(opts = {}) {
   const maxUpload = opts.maxUpload || 100 * 1024 * 1024; // uploads to Vault, 100 MB unless set
   const store = openDb(opts.dbPath || path.join(__dirname, '..', 'data', 'nexa.db'));
   const { one, all, run, tx } = store;
-  const auth = A.createAuth(store, { secureCookies: !!opts.secureCookies });
+  const auth = A.createAuth(store, { secureCookies: !!opts.secureCookies, cookieName: opts.cookieName });
+  const linkBase = opts.linkBase || ''; // '/w/<name>' when this workspace is one of many on a cloud host
   const loginLimit = A.rateLimiter(10, 15 * 60 * 1000);
   const app = express();
   app.disable('x-powered-by');
@@ -76,10 +77,12 @@ function createServer(opts = {}) {
 
   // ---------- session & setup ----------
   app.get('/api/state', (req, res) => {
-    res.json({ setupNeeded: userCount() === 0, workspace: workspaceName(), user: publicUser(req.user), sourceUrl: SOURCE_URL, version: PKG.version });
+    res.json({ setupNeeded: userCount() === 0, workspace: workspaceName(), user: publicUser(req.user), sourceUrl: SOURCE_URL, version: PKG.version,
+      linkBase, sso: opts.ssoProviders || [], cloud: opts.cloud || null });
   });
 
   app.post('/api/setup', wrap(async (req, res) => {
+    if (opts.setupGate && !opts.setupGate(req)) throw new HttpError(403, 'Create a workspace from the start page.');
     const { workspace, name, email, password, sampleContent } = req.body || {};
     if (!A.validEmail(email)) throw bad('Enter a valid email.');
     const pw = A.passwordProblem(password); if (pw) throw bad(pw);
@@ -132,7 +135,7 @@ function createServer(opts = {}) {
     if (title !== undefined) run('UPDATE users SET title = ? WHERE id = ?', plainText(title, 80), req.user.id);
     if (newPassword !== undefined) {
       const u = one('SELECT pass_hash FROM users WHERE id = ?', req.user.id);
-      if (!A.verifyPassword(String(currentPassword || ''), u.pass_hash)) throw new HttpError(403, 'Current password is wrong.');
+      if (u.pass_hash !== A.SSO_ONLY && !A.verifyPassword(String(currentPassword || ''), u.pass_hash)) throw new HttpError(403, 'Current password is wrong.');
       const p = A.passwordProblem(newPassword); if (p) throw bad(p);
       run('UPDATE users SET pass_hash = ? WHERE id = ?', A.hashPassword(newPassword), req.user.id);
       auth.destroyUserSessions(req.user.id);
@@ -160,7 +163,7 @@ function createServer(opts = {}) {
     run('INSERT INTO invites (token_hash, email, role, created_by, created_at, expires_at) VALUES (?,?,?,?,?,?)',
       A.sha256(token), email.trim(), role, req.user.id, Date.now(), Date.now() + 7 * 86400000);
     audit(req, 'user.invited', email.trim(), { role });
-    res.json({ token, path: `/#/invite/${token}`, expiresInDays: 7 });
+    res.json({ token, path: `${linkBase}/#/invite/${token}`, expiresInDays: 7 });
   });
   app.get('/api/invites/:token', (req, res) => {
     const inv = one('SELECT email, role, expires_at, used_at FROM invites WHERE token_hash = ?', A.sha256(req.params.token));
@@ -597,7 +600,68 @@ function createServer(opts = {}) {
   // ---------- Huddle REST ----------
   const huddle = attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app, wrap });
   attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap, huddle, smtpUrl: opts.smtpUrl, smtpFrom: opts.smtpFrom });
-  vault = attachVault({ store, auth, filePerm, audit, HttpError, app, wrap, huddle, maxUpload, quotaBytes: opts.quotaBytes || 0, cleanContent, insertFile, meta });
+  vault = attachVault({ store, auth, filePerm, audit, HttpError, app, wrap, huddle, maxUpload, quotaBytes: opts.quotaBytes || 0, cleanContent, insertFile, meta, linkBase, workspaceQuotaBytes: opts.workspaceQuotaBytes || 0 });
+
+  // ---------- Google or Apple sign-in ----------
+  // The cloud host checks the provider's answer, then calls this with a verified email.
+  function ssoSignIn({ email, name, invite, join, setup, ip, ua }) {
+    email = String(email || '').trim();
+    if (!A.validEmail(email)) throw bad('That account did not share an email we can use.');
+    const nm = plainText(String(name || '').trim() || email.split('@')[0], 80).trim() || 'New member';
+    const fake = { user: null, ip: ip || null };
+    let uid = null;
+    const addToChannels = (id, names) => {
+      for (const c of all(`SELECT id FROM channels WHERE kind = 'public' AND archived = 0 AND name IN (${names.map(() => '?').join(',')})`, ...names)) {
+        run('INSERT OR IGNORE INTO channel_members (channel_id, user_id, joined_at) VALUES (?,?,?)', c.id, id, Date.now());
+      }
+    };
+    if (setup) {
+      uid = A.id('u');
+      tx(() => {
+        if (userCount() > 0) throw new HttpError(409, 'This workspace is already set up.');
+        run("INSERT OR REPLACE INTO meta (k, v) VALUES ('workspace', ?)", plainText(setup.workspace || (nm.split(/\s+/)[0] + '’s team'), 80));
+        run('INSERT INTO users (id, email, name, pass_hash, role, created_at) VALUES (?,?,?,?,?,?)', uid, email, nm, A.SSO_ONLY, 'owner', Date.now());
+        run("INSERT OR REPLACE INTO meta (k, v) VALUES ('join_token', ?)", require('node:crypto').randomBytes(18).toString('base64url'));
+        run("INSERT OR REPLACE INTO meta (k, v) VALUES ('join_enabled', '1')");
+        run("INSERT OR REPLACE INTO meta (k, v) VALUES ('plan', 'free')");
+        seed.channels(store, uid);
+        if (setup.sampleContent !== false) seed.files(store, uid);
+      });
+      fake.user = { id: uid }; audit(fake, 'workspace.setup', uid, { via: 'sso' });
+    } else {
+      const u = one('SELECT * FROM users WHERE email = ?', email);
+      if (u) {
+        if (u.status !== 'active') throw new HttpError(403, 'This account is turned off. Ask an admin.');
+        uid = u.id;
+        fake.user = { id: uid }; audit(fake, 'auth.login', uid, { via: 'sso' });
+      } else if (invite) {
+        const th = A.sha256(String(invite));
+        uid = A.id('u');
+        tx(() => {
+          const inv = one('SELECT * FROM invites WHERE token_hash = ?', th);
+          if (!inv || inv.used_at || inv.expires_at < Date.now()) throw new HttpError(404, 'This invite link is not valid any more.');
+          if (inv.email.toLowerCase() !== email.toLowerCase()) throw new HttpError(403, `This invite is for ${inv.email}. Sign in with that account.`);
+          run('INSERT INTO users (id, email, name, pass_hash, role, created_at) VALUES (?,?,?,?,?,?)', uid, inv.email, nm, A.SSO_ONLY, inv.role, Date.now());
+          run('UPDATE invites SET used_at = ? WHERE token_hash = ?', Date.now(), th);
+          if (inv.role !== 'guest') addToChannels(uid, ['general']);
+        });
+        fake.user = { id: uid }; audit(fake, 'user.joined', uid, { via: 'sso' });
+      } else if (join) {
+        if (!joinAllowed(String(join))) throw new HttpError(404, 'This team link is not valid any more. Ask your admin for a new one.');
+        const domain = getMeta('join_domain');
+        if (domain && !email.toLowerCase().endsWith('@' + domain)) throw bad(`Use your @${domain} account to join this workspace.`);
+        uid = A.id('u');
+        tx(() => {
+          run('INSERT INTO users (id, email, name, pass_hash, role, created_at) VALUES (?,?,?,?,?,?)', uid, email, nm, A.SSO_ONLY, 'member', Date.now());
+          addToChannels(uid, ['general', 'random']);
+        });
+        fake.user = { id: uid }; audit(fake, 'user.joined_by_link', uid, { via: 'sso' });
+      } else {
+        throw new HttpError(404, 'No account in this workspace uses that email. Ask an admin for an invite or the team link.');
+      }
+    }
+    return auth.cookieFor(auth.createSession(uid, ua), auth.SESSION_TTL_MS);
+  }
 
   // ---------- static ----------
   app.get('/shared/:file', (req, res, next) => {
@@ -610,14 +674,14 @@ function createServer(opts = {}) {
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     const status = err.status || err.statusCode || 500;
-    if (status >= 500 && !opts.quiet) console.error(err);
+    if (status >= 500 && !(err instanceof HttpError) && !opts.quiet) console.error(err);
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'That file is larger than the upload limit.' });
-    res.status(status).json({ error: status >= 500 ? 'Something went wrong on the server.' : err.message });
+    res.status(status).json({ error: status >= 500 && !(err instanceof HttpError) ? 'Something went wrong on the server.' : err.message });
   });
 
   const server = http.createServer(app);
   huddle.attachSockets(server);
-  return { app, server, store, close: () => { huddle.close(); server.close(); store.db.close(); } };
+  return { app, server, store, ssoSignIn, close: () => { huddle.close(); server.close(); store.db.close(); } };
 }
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);

@@ -2,7 +2,9 @@
 const crypto = require('node:crypto');
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
-const COOKIE = 'nexa_sid';
+const DEFAULT_COOKIE = 'nexa_sid';
+// Stored in place of a password hash for people who only sign in with Google or Apple. It never matches a password.
+const SSO_ONLY = 'sso$none';
 const ROLES = ['owner', 'admin', 'member', 'guest'];
 const RANK = { guest: 0, member: 1, admin: 2, owner: 3 };
 
@@ -55,8 +57,9 @@ function rateLimiter(max, windowMs) {
   };
 }
 
-function createAuth(store, { secureCookies }) {
+function createAuth(store, { secureCookies, cookieName }) {
   const { one, run } = store;
+  const COOKIE = cookieName || DEFAULT_COOKIE;
 
   function createSession(userId, ua) {
     const token = crypto.randomBytes(32).toString('base64url');
@@ -99,4 +102,4 @@ function createAuth(store, { secureCookies }) {
   return { createSession, cookieFor, userFromToken, userFromRequest, destroySession, destroyUserSessions, attach, requireUser, requireRole, COOKIE, SESSION_TTL_MS };
 }
 
-module.exports = { createAuth, hashPassword, verifyPassword, passwordProblem, validEmail, id, sha256, rateLimiter, parseCookies, ROLES, RANK };
+module.exports = { SSO_ONLY, createAuth, hashPassword, verifyPassword, passwordProblem, validEmail, id, sha256, rateLimiter, parseCookies, ROLES, RANK };

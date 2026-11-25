@@ -23,7 +23,7 @@ const NATIVE_MIME = {
 const BLOB_VERSIONS_KEPT = 20;
 const DAY = 86400000;
 
-function attachVault({ store, auth, filePerm, audit, HttpError, app, wrap, huddle, maxUpload, quotaBytes, cleanContent, insertFile, meta }) {
+function attachVault({ store, auth, filePerm, audit, HttpError, app, wrap, huddle, maxUpload, quotaBytes, cleanContent, insertFile, meta, linkBase = '', workspaceQuotaBytes = 0 }) {
   const { one, all, run, tx, db } = store;
   const PERM_RANK = { none: 0, view: 1, edit: 2, owner: 3 };
   const bad = (m) => new HttpError(400, m);
@@ -55,7 +55,10 @@ function attachVault({ store, auth, filePerm, audit, HttpError, app, wrap, huddl
   const linksAllowed = () => getMeta('public_links') !== 'off';
   const usedBy = (uid) => one('SELECT COALESCE(SUM(size),0) AS n FROM files WHERE owner_id = ?', uid).n
     + one('SELECT COALESCE(SUM(v.size),0) AS n FROM file_versions v JOIN files f ON f.id = v.file_id WHERE f.owner_id = ? AND v.blob IS NOT NULL', uid).n;
+  const usedAll = () => one('SELECT COALESCE(SUM(size),0) AS n FROM files').n
+    + one('SELECT COALESCE(SUM(size),0) AS n FROM file_versions WHERE blob IS NOT NULL').n;
   function checkQuota(uid, adding) {
+    if (workspaceQuotaBytes && usedAll() + adding > workspaceQuotaBytes) throw new HttpError(507, `This workspace has used its ${fmtBytes(workspaceQuotaBytes)} of storage. Empty the trash or delete older files to make room.`);
     if (quotaBytes && usedBy(uid) + adding > quotaBytes) throw new HttpError(507, `This would go over your ${fmtBytes(quotaBytes)} of storage. Empty the trash or delete older files to make room.`);
   }
   const notify = (f, user) => huddle.notifyFile(f.id, { t: 'file.saved', id: f.id, version: f.version + 1, by: user.id, byName: user.name });
@@ -137,7 +140,7 @@ function attachVault({ store, auth, filePerm, audit, HttpError, app, wrap, huddl
   });
 
   // ---------- share links ----------
-  const linkRow = (l) => ({ token: l.token, path: '/s/' + l.token, created_at: l.created_at, expires_at: l.expires_at, allow_download: !!l.allow_download, views: l.views, created_by: l.created_by });
+  const linkRow = (l) => ({ token: l.token, path: linkBase + '/s/' + l.token, created_at: l.created_at, expires_at: l.expires_at, allow_download: !!l.allow_download, views: l.views, created_by: l.created_by });
   app.get('/api/files/:id/links', auth.requireUser, (req, res) => {
     const f = one('SELECT * FROM files WHERE id = ?', req.params.id);
     if (!f || PERM_RANK[filePerm(req.user, f)] < PERM_RANK.edit) throw new HttpError(404, 'File not found.');
@@ -243,7 +246,7 @@ footer{text-align:center;margin:30px 0;color:var(--m);font-size:12px}footer a{co
     if (!L) return res.status(404).send(page('Link not available', '<div class="card"><h2>This link is not available</h2><p class="muted">It may have expired, or the owner turned it off.</p></div>'));
     const { l, f } = L;
     run('UPDATE share_links SET views = views + 1 WHERE token = ?', l.token);
-    const base = '/s/' + l.token;
+    const base = linkBase + '/s/' + l.token;
     const dl = (href, label) => (l.allow_download ? `<a class="btn" href="${href}">${label}</a>` : '<span class="muted">The owner turned off downloads for this link.</span>');
     const owner = one('SELECT name FROM users WHERE id = ?', f.owner_id);
     const sub = `<p class="muted">Shared by ${esc(owner ? owner.name : 'someone')} · updated ${new Date(f.updated_at).toUTCString().slice(0, 16)}</p>`;
@@ -349,7 +352,7 @@ footer{text-align:center;margin:30px 0;color:var(--m);font-size:12px}footer a{co
     return { node, parent, name: segs[segs.length - 1] };
   }
   const segsOf = (p) => p.replace(/^\/dav\/?/, '').split('/').filter(Boolean).map((s) => { try { return decodeURIComponent(s); } catch { return s; } });
-  const hrefOf = (segs, folder) => '/dav/' + segs.map(encodeURIComponent).join('/') + (folder && segs.length ? '/' : '');
+  const hrefOf = (segs, folder) => linkBase + '/dav/' + segs.map(encodeURIComponent).join('/') + (folder && segs.length ? '/' : '');
   const etag = (f) => `"${f.id}-${f.version}"`;
   function propXml(href, f, user, isRoot) {
     const folder = isRoot || f.kind === 'folder';

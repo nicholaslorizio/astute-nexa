@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up every Astute Nexa workspace
+
+[Service]
+Type=oneshot
+User=nexa
+EnvironmentFile=/etc/astute-nexa.env
+ExecStart=/usr/local/bin/node /opt/astute-nexa/deploy/backup.js
