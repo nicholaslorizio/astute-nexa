@@ -1,0 +1,21 @@
+[Unit]
+Description=Astute Nexa online
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/astute-nexa.env
+ExecStart=/usr/local/bin/node /opt/astute-nexa/bin/nexa.js --no-open
+User=nexa
+Group=nexa
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/astute-nexa
+MemoryMax=3G
+
+[Install]
+WantedBy=multi-user.target

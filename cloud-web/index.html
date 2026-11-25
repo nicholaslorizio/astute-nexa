@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Astute Nexa online</title>
+<meta name="description" content="Make a free Astute Nexa workspace for your team: docs, sheets, slides, chat and video calls, mail, calendar and files in your browser.">
+<meta name="theme-color" content="#6D4BFF">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/nexa.css">
+<style>
+  .tabs { display: flex; gap: 6px; margin: 18px 0 4px; }
+  .tabs button[aria-selected="true"] { background: var(--brand, #6D4BFF); color: #fff; border-color: transparent; }
+  .addr { display: flex; align-items: center; gap: 0; }
+  .addr span { padding: 0 8px; color: var(--text-2); font-size: 13px; white-space: nowrap; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="auth">
+  <div class="auth-hero">
+    <div class="row" style="gap:12px"><img src="/icons/icon.svg" width="40" height="40" alt=""><b style="font-size:20px">Astute Nexa</b></div>
+    <div>
+      <h1>Your whole office.<br>In your browser.</h1>
+      <p>Docs, sheets, slides, team chat with video calls, mail, calendar and files that work together. Make a free workspace and send your team one link.</p>
+    </div>
+    <div class="muted small" style="color:#8D95C2">Free while in early access. Each workspace gets 1 GB. Open source under AGPL-3.0.</div>
+  </div>
+  <div class="auth-card">
+    <div class="tabs" role="tablist">
+      <button class="btn" role="tab" id="tab-new" aria-selected="true">New workspace</button>
+      <button class="btn" role="tab" id="tab-open" aria-selected="false">Open a workspace</button>
+    </div>
+
+    <section id="new">
+      <h2>Make your workspace</h2>
+      <p class="muted" style="margin:0">You’ll be the owner, and you can invite your team with one link.</p>
+      <form id="create-form">
+        <label class="field">Workspace address
+          <span class="addr"><span id="host"></span><input class="input" name="name" required pattern="[a-z0-9][a-z0-9\-]{1,30}[a-z0-9]" placeholder="your-team" autocomplete="off" spellcheck="false"></span>
+          <span class="small" id="name-hint">Lowercase letters, numbers and dashes.</span>
+        </label>
+        <label class="field">Team or company name <input class="input" name="workspace" placeholder="Defaults to your name"></label>
+        <div id="sso-new" class="col" style="gap:8px" hidden></div>
+        <label class="field">Your name <input class="input" name="person" required autocomplete="name"></label>
+        <label class="field">Email <input class="input" name="email" type="email" required autocomplete="email"></label>
+        <label class="field">Password <input class="input" name="password" type="password" required minlength="12" autocomplete="new-password" placeholder="At least 12 characters"></label>
+        <label class="check"><input type="checkbox" name="sample" checked> Add a sample doc, budget and deck</label>
+        <p class="small bad" id="create-err" role="alert"></p>
+        <button class="btn primary big" type="submit">Make my workspace</button>
+      </form>
+    </section>
+
+    <section id="open" hidden>
+      <h2>Open your workspace</h2>
+      <p class="muted" style="margin:0">Type the address your team uses.</p>
+      <form id="open-form">
+        <label class="field">Workspace address
+          <span class="addr"><span id="host2"></span><input class="input" name="name" required placeholder="your-team" autocomplete="off" spellcheck="false"></span>
+        </label>
+        <p class="small bad" id="open-err" role="alert"></p>
+        <button class="btn primary big" type="submit">Open</button>
+      </form>
+    </section>
+    <p class="auth-foot"><a href="https://github.com/nicholaslorizio/astute-nexa" rel="noopener">Source code</a> · <a href="https://nicholaslorizio.github.io/nexa/" rel="noopener">Get the desktop app</a></p>
+  </div>
+</div>
+<script src="/cloud/cloud.js"></script>
+</body>
+</html>

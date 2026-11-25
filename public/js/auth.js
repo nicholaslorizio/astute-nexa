@@ -32,6 +32,17 @@
     const toggle = h('button', { type: 'button', class: 'btn ghost sm', onclick: () => { input.type = input.type === 'password' ? 'text' : 'password'; toggle.textContent = input.type === 'password' ? 'Show' : 'Hide'; } }, 'Show');
     return h('label', { class: 'field' }, h('span', { class: 'row' }, label, h('span', { class: 'grow' }), toggle), input, meter, hint);
   }
+  // Google and Apple buttons appear only when the server has them switched on.
+  const SSO_NAMES = { google: 'Continue with Google', apple: 'Continue with Apple' };
+  function ssoButtons(extra) {
+    const list = (Nexa.state.sso || []).filter((p) => SSO_NAMES[p]);
+    if (!list.length) return null;
+    const q = new URLSearchParams(extra || {}).toString();
+    return h('div', { class: 'col', style: { gap: '8px' } },
+      list.map((p) => h('a', { class: 'btn big', href: `/sso/${p}/start${q ? '?' + q : ''}` }, SSO_NAMES[p])),
+      h('p', { class: 'muted small', style: { textAlign: 'center', margin: '2px 0' } }, 'or use your email'));
+  }
+  const otherWorkspace = () => (Nexa.state.cloud ? h('p', { class: 'auth-foot' }, h('a', { href: '/w/' }, 'Open a different workspace')) : null);
   function submitter(form, fn) {
     const err = h('div', { class: 'err', role: 'alert' });
     const btn = form.querySelector('button[type=submit]');
@@ -74,8 +85,8 @@
         h('label', { class: 'field' }, 'Password', h('input', { class: 'input', type: 'password', name: 'password', required: true, autocomplete: 'current-password' })),
         h('button', { class: 'btn primary big', type: 'submit' }, 'Sign in'));
       submitter(form, async (d) => { await api.post('/api/login', d); await Nexa.boot(true); });
-      frame([h('h2', {}, 'Welcome back'), h('p', { class: 'muted', style: { margin: 0 } }, `Sign in to ${Nexa.state.workspace}.`), form,
-        h('p', { class: 'auth-foot' }, 'New here? Ask your admin for the team link, or for an invite.')]);
+      frame([h('h2', {}, 'Welcome back'), h('p', { class: 'muted', style: { margin: 0 } }, `Sign in to ${Nexa.state.workspace}.`), ssoButtons(), form,
+        h('p', { class: 'auth-foot' }, 'New here? Ask your admin for the team link, or for an invite.'), otherWorkspace()]);
     },
     async join(token) {
       let info;
@@ -87,7 +98,7 @@
         h('button', { class: 'btn primary big', type: 'submit' }, `Join ${info.workspace}`));
       submitter(form, async (d) => { await api.post('/api/join/' + encodeURIComponent(token), d); location.hash = '#/home'; await Nexa.boot(true); });
       frame([h('span', { class: 'pill brand' }, 'Team link'), h('h2', { style: { marginTop: '14px' } }, `Join ${info.workspace}`),
-        h('p', { class: 'muted', style: { margin: 0 } }, 'Make your account and you’ll land straight in the team chat.'), form,
+        h('p', { class: 'muted', style: { margin: 0 } }, 'Make your account and you’ll land straight in the team chat.'), ssoButtons({ join: token }), form,
         h('p', { class: 'auth-foot' }, h('a', { href: '#/login' }, 'Already have an account? Sign in'))]);
     },
     async invite(token) {
@@ -99,7 +110,7 @@
         pwField(),
         h('button', { class: 'btn primary big', type: 'submit' }, 'Accept invite'));
       submitter(form, async (d) => { await api.post(`/api/invites/${encodeURIComponent(token)}/accept`, d); location.hash = '#/home'; await Nexa.boot(true); });
-      frame([h('span', { class: 'pill brand' }, `Invited as ${info.role}`), h('h2', { style: { marginTop: '14px' } }, `Join ${info.workspace}`), form]);
+      frame([h('span', { class: 'pill brand' }, `Invited as ${info.role}`), h('h2', { style: { marginTop: '14px' } }, `Join ${info.workspace}`), ssoButtons({ invite: token }), form]);
     },
     dead(msg) {
       frame([h('h2', {}, 'That link didn’t work'), h('p', { class: 'muted' }, msg), h('a', { class: 'btn', href: '#/login' }, 'Go to sign in')]);
