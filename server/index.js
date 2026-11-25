@@ -31,9 +31,20 @@ function start({ open = false } = {}) {
 function startCloud({ port, host, dataDir }) {
   const { createCloud, providersFromEnv } = require('./cloud');
   const store = require('./github-store').githubStoreFromEnv(process.env, dataDir);
-  const ready = store ? store.restore() : Promise.resolve();
+  // Keep trying while GitHub can't be reached, instead of giving up. The host keeps the old copy
+  // running until this one answers, and starting without the saved data would lose it.
+  const restore = async () => {
+    for (let wait = 5000; ; wait = Math.min(wait * 2, 60000)) {
+      try { return await store.restore(); } catch (e) {
+        if (e.permanent) throw e;
+        console.error(`Could not load workspaces from GitHub (${e.message}). Trying again in ${wait / 1000} seconds.`);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+  };
+  const ready = store ? restore() : Promise.resolve();
   return ready.then(() => {
-    const { server } = createCloud({
+    const cloud = createCloud({
       dataDir,
       publicUrl: process.env.NEXA_PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '',
       secureCookies: process.env.NEXA_SECURE_COOKIES === '1',
@@ -44,9 +55,10 @@ function startCloud({ port, host, dataDir }) {
       ...(process.env.NEXA_MIN_FREE_MB ? { minFreeBytes: +process.env.NEXA_MIN_FREE_MB * 1024 * 1024 } : {}),
       providers: providersFromEnv(),
     });
+    const { server } = cloud;
     server.listen(port, host, () => console.log(`Astute Nexa online is running on port ${port}. Workspaces are stored in ${dataDir}/workspaces`));
     if (store) {
-      store.start();
+      store.start({ release: cloud.release });
       let stopping = false;
       const finish = async () => {
         if (stopping) return; stopping = true;

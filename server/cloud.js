@@ -267,7 +267,13 @@ function createCloud(opts = {}) {
     if (!exists(name)) return socket.destroy();
     load(name).server.emit('upgrade', req, socket, head);
   });
-  return { server, handle, tenants, close: () => { for (const t of tenants.values()) t.close(); tenants.clear(); server.close(); } };
+  // Closes a workspace that is open, so a newer copy of its file can be put in place. It opens again on the next visit.
+  function release(name) {
+    const t = tenants.get(name);
+    if (t) { try { t.close(); } catch { /* already closed */ } tenants.delete(name); }
+    return true;
+  }
+  return { server, handle, tenants, release, close: () => { for (const t of tenants.values()) t.close(); tenants.clear(); server.close(); } };
 }
 
 module.exports = { createCloud, providersFromEnv, validName, appleClientSecret };
