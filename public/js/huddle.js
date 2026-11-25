@@ -276,7 +276,7 @@
       this.tile('me', 'You', stream, true);
       if (!video) camB.classList.add('off');
       C.offs.push(
-        Nexa.rt.on('call.joined', (m) => { if (m.channel_id !== cid) return; this.count(m.participants); for (const p of m.peers) this.peer(p, (m.participants.find((x) => x.user_id === p) || {}).name, true); }),
+        Nexa.rt.on('call.joined', (m) => { if (m.channel_id !== cid) return; this.count(m.participants); for (const p of m.peers) this.peer(p, (m.participants.find((x) => x.id === p) || {}).name, true); }),
         Nexa.rt.on('call.peer', (m) => { if (m.channel_id !== cid) return; this.count(m.participants); this.peer(m.user_id, m.name, false); }),
         Nexa.rt.on('call.left', (m) => { if (m.channel_id !== cid) return; this.count(m.participants); this.drop(m.user_id); }),
         Nexa.rt.on('call.full', (m) => { if (m.channel_id === cid) { toast('This call is full (8 people).', 'bad'); this.leave(); } }),
