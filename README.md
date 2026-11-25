@@ -17,6 +17,8 @@
 
 Your files stay on your computer, in `%LOCALAPPDATA%\Astute Nexa`. Uninstalling Nexa keeps them.
 
+The Windows app runs on your PC only, so you can try every app on your own. Chat and calls between users come with the cloud version, which is on the way. A team that wants to work together today can run Nexa on a server, as shown below.
+
 ---
 
 ## Other ways to run it
