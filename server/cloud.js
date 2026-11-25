@@ -268,6 +268,13 @@ function createCloud(opts = {}) {
 
   const server = http.createServer(handle);
   server.on('upgrade', (req, socket, head) => {
+    // a guest who opened a call link has no workspace cookie: the address names the workspace
+    const g = req.url.match(/^\/w\/([^/?]+)(\/ws\/guest(?:\?.*)?)$/);
+    if (g) {
+      if (!exists(g[1])) return socket.destroy();
+      req.url = g[2];
+      return load(g[1]).server.emit('upgrade', req, socket, head);
+    }
     const name = cookies(req)[WS_COOKIE];
     if (!exists(name)) return socket.destroy();
     load(name).server.emit('upgrade', req, socket, head);

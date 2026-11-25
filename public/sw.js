@@ -9,7 +9,7 @@ self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) =
 self.addEventListener('fetch', (e) => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET' || u.origin !== location.origin) return;
-  if (/^\/(api|dav|s|ws|w|sso|cloud)(\/|$)/.test(u.pathname)) return; // live data, workspace links and sign-in are never cached
+  if (/^\/(api|dav|s|ws|w|sso|cloud|call)(\/|$)/.test(u.pathname)) return; // live data, workspace links and sign-in are never cached
   // Network first so updates land at once; fall back to the cached shell offline.
   e.respondWith(fetch(e.request).then((r) => {
     if (r.ok && SHELL.includes(u.pathname)) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
