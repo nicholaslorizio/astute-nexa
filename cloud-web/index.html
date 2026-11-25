@@ -38,7 +38,7 @@
       <p class="muted" style="margin:0">You’ll be the owner, and you can invite your team with one link.</p>
       <form id="create-form">
         <label class="field">Workspace address
-          <span class="addr"><span id="host"></span><input class="input" name="name" required pattern="[a-z0-9][a-z0-9\-]{1,30}[a-z0-9]" placeholder="your-team" autocomplete="off" spellcheck="false"></span>
+          <span class="addr"><span id="host"></span><input class="input" name="name" required pattern="[a-z0-9][a-z0-9\-]{1,30}[a-z0-9]" title="3 to 32 lowercase letters, numbers or dashes" placeholder="your-team" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></span>
           <span class="small" id="name-hint">Lowercase letters, numbers and dashes.</span>
         </label>
         <label class="field">Team or company name <input class="input" name="workspace" placeholder="Defaults to your name"></label>
@@ -59,7 +59,7 @@
       <div id="last" class="col" style="gap:8px;margin-top:18px" hidden></div>
       <form id="open-form">
         <label class="field">Workspace address
-          <span class="addr"><span id="host2"></span><input class="input" name="name" required placeholder="your-team" autocomplete="off" spellcheck="false"></span>
+          <span class="addr"><span id="host2"></span><input class="input" name="name" required placeholder="your-team" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></span>
         </label>
         <p class="small bad" id="open-err" role="alert"></p>
         <button class="btn primary big" type="submit">Continue</button>

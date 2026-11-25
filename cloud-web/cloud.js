@@ -14,7 +14,19 @@
   if (location.hash === '#open') show('open');
 
   const cf = $('create-form');
-  const clean = (v) => String(v || '').trim().toLowerCase();
+  // phones capitalise the first letter and people paste whole links, so reduce what they type to the bare address
+  const clean = (v) => String(v || '').trim().toLowerCase().replace(/^.*\/w\//, '').replace(/[/#?].*$/, '').trim();
+  const tidy = (input) => input.addEventListener('input', () => {
+    const v = clean(input.value);
+    if (v !== input.value) input.value = v;
+  });
+  const openWith = (n) => {
+    show('open');
+    const f = $('open-form').elements.namedItem('name');
+    f.value = n; f.focus();
+  };
+  tidy(cf.name);
+  tidy($('open-form').elements.namedItem('name'));
   let timer;
   cf.name.addEventListener('input', () => {
     clearTimeout(timer);
@@ -23,8 +35,16 @@
       if (!v) return;
       try {
         const r = await (await fetch('/cloud/check?name=' + encodeURIComponent(v))).json();
-        $('name-hint').textContent = r.ok ? 'That address is free.' : r.reason;
-        $('name-hint').className = 'small ' + (r.ok ? 'ok' : 'bad');
+        const hint = $('name-hint');
+        hint.className = 'small ' + (r.ok ? 'ok' : 'bad');
+        if (r.exists) {
+          // the address is someone's workspace already, most likely theirs: offer to sign in to it
+          hint.textContent = v + ' already exists. ';
+          const a = document.createElement('a');
+          a.href = '#open'; a.textContent = 'Sign in to ' + v;
+          a.onclick = (e) => { e.preventDefault(); openWith(v); };
+          hint.append(a);
+        } else hint.textContent = r.ok ? 'That address is free.' : r.reason;
       } catch { /* offline */ }
     }, 300);
   });
@@ -65,6 +85,10 @@
     $('create-err').textContent = '';
     const btn = cf.querySelector('button[type=submit]'); btn.disabled = true;
     const n = clean(cf.name.value);
+    try {
+      const c = await (await fetch('/cloud/check?name=' + encodeURIComponent(n))).json();
+      if (c.exists) { btn.disabled = false; openWith(n); $('open-err').textContent = n + ' already exists, so sign in to it here.'; return; }
+    } catch { /* offline: let the create call answer */ }
     const person = cf.person.value.trim();
     const body = { name: person, email: cf.email.value.trim(), password: cf.password.value,
       workspace: cf.workspace.value.trim() || (person.split(/\s+/)[0] + '’s team'), sampleContent: cf.sample.checked };

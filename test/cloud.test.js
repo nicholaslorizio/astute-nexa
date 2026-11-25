@@ -110,6 +110,13 @@ test('cloud: many workspaces from one link, kept apart', async (t) => {
     assert.equal((await sneaky.get('/api/state')).body.user, null);
   });
 
+  await t.test('phone keyboards do not capitalise the workspace address', async () => {
+    const page = (await anon.get('/cloud/')).text;
+    const fields = page.match(/<input[^>]*name="name"[^>]*>/g);
+    assert.equal(fields.length, 2, 'both forms ask for the address');
+    for (const f of fields) assert.match(f, /autocapitalize="none"/, 'a capital first letter would fail the address format');
+  });
+
   await t.test('the start page offers to sign back in to the workspace this browser opened', async () => {
     assert.equal((await anon.get('/cloud/config')).body.current, null, 'a new browser is not pointed anywhere');
     const page = await anon.get('/cloud/');
