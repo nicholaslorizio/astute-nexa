@@ -110,6 +110,23 @@ test('cloud: many workspaces from one link, kept apart', async (t) => {
     assert.equal((await sneaky.get('/api/state')).body.user, null);
   });
 
+  await t.test('the start page offers to sign back in to the workspace this browser opened', async () => {
+    assert.equal((await anon.get('/cloud/config')).body.current, null, 'a new browser is not pointed anywhere');
+    const page = await anon.get('/cloud/');
+    assert.match(page.text, />Sign in</, 'signing in is offered on the start page');
+    const back = browser(cloud.base);
+    await back.get('/w/acme');
+    const c = await back.get('/cloud/config');
+    assert.equal(c.body.current, 'acme');
+    assert.equal(c.headers.get('cache-control'), 'no-store');
+    // "Open a different workspace" forgets it
+    await back.get('/w/');
+    assert.equal((await back.get('/cloud/config')).body.current, null);
+    const stale = browser(cloud.base);
+    stale.jar.set('nexa_ws', 'gone-away');
+    assert.equal((await stale.get('/cloud/config')).body.current, null, 'a workspace that no longer exists is not offered');
+  });
+
   await t.test('names are checked and setup cannot be redone', async () => {
     assert.equal((await anon.post('/cloud/create?name=acme', { name: 'X', email: 'x@x.example', password: PW })).status, 400);
     assert.equal((await anon.post('/cloud/create?name=Bad%20Name', { name: 'X', email: 'x@x.example', password: PW })).status, 400);
