@@ -3,6 +3,14 @@
 const Nexa = window.Nexa = { apps: {}, state: { user: null, users: [], online: new Set(), workspace: 'Astute Nexa' } };
 
 // ---------- DOM ----------
+// append() and prepend() take lists and skip empty values everywhere in the app, so a list of
+// elements never shows up as "[object HTMLElement]" and a missing part never shows up as "null".
+for (const proto of [Element.prototype, DocumentFragment.prototype]) {
+  for (const name of ['append', 'prepend']) {
+    const orig = proto[name];
+    proto[name] = function (...items) { return orig.apply(this, items.flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false)); };
+  }
+}
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   if (attrs) {

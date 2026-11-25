@@ -124,6 +124,10 @@ No build step. The server is Node.js with Express, SQLite (built into Node) and 
 - `shared/` the formula engine and deck themes, used by both sides
 - `test/` the test suite
 
+## Coming next
+
+- **Cross-company chat.** Huddle works inside one workspace today. Chat and calls between different companies' workspaces are coming with paid plans, under proper licensing.
+
 ## More
 
 - [How Nexa compares with Microsoft 365](COMPARISON.md), including what v1 does not do yet

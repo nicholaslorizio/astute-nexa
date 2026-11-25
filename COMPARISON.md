@@ -34,6 +34,7 @@ Be clear about these before moving a team over.
 - **No native sync app.** Vault syncs through your computer's network drive feature (WebDAV) or `rclone`. There is no Nexa desktop client with files on demand. Windows only maps drives over HTTPS.
 - **Office files convert, they don't round-trip perfectly.** Text, tables, images, formulas, sheets and slides come through. Advanced features such as tracked changes, macros, pivot tables, animations and complex layouts are simplified or dropped.
 - **Spreadsheet depth.** 73 functions cover everyday sums, lookups, text, dates and logic. Pivot tables, macros and array formulas are not there.
+- **No chat between companies.** Huddle works inside one workspace. Chat and calls across different companies' workspaces are coming with paid plans.
 - **No AI features.**
 - **No mobile apps.** The web app works on phones and installs to the home screen.
 - **Single server.** One Nexa runs on one machine with SQLite. It suits teams up to roughly dozens of people, not large companies.
