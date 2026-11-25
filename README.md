@@ -6,11 +6,22 @@
 
 <p align="center">Write · Grid · Deck · Huddle · Relay · Cadence · Vault</p>
 
+<h2 align="center"><a href="https://github.com/nicholaslorizio/astute-nexa/releases/latest/download/Astute-Nexa-Setup.exe">Download free for Windows</a></h2>
+
+<p align="center">Windows 10 and 11 · 29 MB · nothing else to install</p>
+
+1. Click **Download free for Windows** above.
+2. Open the file. If your browser asks, choose **Keep**.
+3. Windows may show "Windows protected your PC" because Nexa is new and not yet signed. Click **More info**, then **Run anyway**.
+4. Click **Next**, **Install**, **Finish**. Nexa opens in its own window and adds itself to your Start menu and desktop.
+
+Your files stay on your computer, in `%LOCALAPPDATA%\Astute Nexa`. Uninstalling Nexa keeps them.
+
 ---
 
-## Get started in 2 minutes
+## Other ways to run it
 
-Pick one. Each way gives you the same app.
+Pick one. Each way gives you the same app, and these work on Mac and Linux too.
 
 ### 1. Run it with one command (Windows, Mac or Linux)
 
