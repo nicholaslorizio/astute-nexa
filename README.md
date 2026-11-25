@@ -6,7 +6,7 @@
 
 <p align="center">Write · Grid · Deck · Huddle · Relay · Cadence · Vault</p>
 
-<h2 align="center"><a href="https://github.com/nicholaslorizio/astute-nexa/releases/latest/download/Astute-Nexa-Setup.exe">Download free for Windows</a></h2>
+<h2 align="center"><a href="https://github.com/nicholaslorizio/astute-nexa/raw/main/download/Astute-Nexa-Setup.exe">Download free for Windows</a></h2>
 
 <p align="center">Windows 10 and 11 · 29 MB · nothing else to install</p>
 
