@@ -10,17 +10,23 @@ It is free to host on Oracle Cloud's Always Free tier: one Arm server with 2 cor
 2. In the console, go to **Compute > Instances > Create instance**.
    - Image: **Ubuntu 24.04**.
    - Shape: **Ampere VM.Standard.A1.Flex**, 2 OCPUs and 12 GB memory (inside the free limit). If Oracle says it is out of capacity, try another availability domain or try again later.
-   - Add your SSH key, then **Create**.
+   - Under **Add SSH keys**, pick **Generate a key pair for me** and click **Save private key**. Then **Create**.
 3. Open the web ports: **Networking > Virtual cloud networks >** your network **> Security lists > Default > Add ingress rules**: source `0.0.0.0/0`, TCP, destination ports `80,443`.
-4. SSH in and run:
+4. When the instance shows **Running**, copy its **Public IP address**. On Windows, open PowerShell and connect (use your key file's name and the IP):
+
+   ```
+   ssh -i $HOME\Downloads\ssh-key-2026-11-25.key ubuntu@<public IP>
+   ```
+
+   Type `yes` if it asks about the fingerprint. Then run:
 
    ```
    curl -fsSL https://raw.githubusercontent.com/nicholaslorizio/astute-nexa/main/deploy/setup-server.sh | sudo bash
    ```
 
-   It prints the address, like `https://129-146-1-2.sslip.io`. No domain is needed. To use your own domain, point it at the server and run `export DOMAIN=nexa.example.com` before the script.
+   It prints the address, like `https://129-146-1-2.sslip.io`. No domain is needed. To use your own domain, point it at the server and change `sudo bash` to `sudo DOMAIN=nexa.example.com bash`.
 
-Oracle can reclaim idle Always Free servers (under 20% use for 7 days). A server with regular users stays busy enough; if it is reclaimed, the nightly backups in `/var/lib/astute-nexa/backups` are on its disk, so copy them off now and then.
+Oracle can reclaim idle Always Free servers (under 20% use for 7 days). Nightly backups go to `/var/lib/astute-nexa/backups` on the server's own disk, so copy them somewhere else now and then.
 
 ## 2. Turn on Google sign-in (free, optional)
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sets up Astute Nexa online on a fresh Ubuntu 22.04 or 24.04 server (built for Oracle Cloud Always Free).
 # Run once as root:  curl -fsSL https://raw.githubusercontent.com/nicholaslorizio/astute-nexa/main/deploy/setup-server.sh | sudo bash
-# Optional before running: export DOMAIN=nexa.example.com (otherwise <public-ip>.sslip.io is used, no domain needed).
+# For your own domain: ... | sudo DOMAIN=nexa.example.com bash (otherwise <public-ip>.sslip.io is used, no domain needed).
 set -euo pipefail
 NODE_VER="${NODE_VER:-22.23.5}"
 REPO="${REPO:-https://github.com/nicholaslorizio/astute-nexa.git}"
