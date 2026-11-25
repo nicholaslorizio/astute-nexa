@@ -87,6 +87,16 @@ CREATE TABLE IF NOT EXISTS channel_members (
   last_read INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (channel_id, user_id)
 );
+-- links that let someone without an account join one channel's call (only a hash of the link is kept)
+CREATE TABLE IF NOT EXISTS call_links (
+  token_hash TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER,
+  ended_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,

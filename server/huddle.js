@@ -1,5 +1,7 @@
 'use strict';
 // Huddle: channels, direct messages, live events and call signaling over WebSocket.
+const crypto = require('node:crypto');
+const path = require('node:path');
 const { WebSocketServer } = require('ws');
 const A = require('./auth');
 const { createIce, iceFromEnv } = require('./ice');
@@ -9,9 +11,10 @@ let sharedIce = null; // one TURN login cache for every workspace in this proces
 const MAX_BODY = 8000;
 const CHANNEL_NAME = /^[a-z0-9][a-z0-9-_]{0,59}$/;
 
-function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app, wrap, ice }) {
+function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app, wrap, ice, linkBase = '', callLinks = {} }) {
   const { one, all, run, tx } = store;
   const sockets = new Map(); // userId -> Set<ws>
+  const guests = new Set(); // ids of people in a call through a call link, without an account
   const calls = new Map(); // channelId -> Map<userId, {name, since, sockets: Set<ws>}>
   const iceSvc = ice && typeof ice.forUser === 'function' ? ice : ice ? createIce(ice) : (sharedIce = sharedIce || createIce(iceFromEnv()));
   const fileWatchers = new Map(); // fileId -> Set<ws>
@@ -26,7 +29,13 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
     for (const ws of set) if (ws.readyState === 1) ws.send(data);
   }
   const broadcast = (cid, msg, except) => { for (const uid of members(cid)) if (uid !== except) sendTo(uid, msg); };
-  const broadcastAll = (msg) => { for (const uid of sockets.keys()) sendTo(uid, msg); };
+  const broadcastAll = (msg) => { for (const uid of sockets.keys()) if (!guests.has(uid)) sendTo(uid, msg); };
+  // call news goes to the channel's members and to any guests in that call
+  const callBroadcast = (cid, msg, except) => {
+    broadcast(cid, msg, except);
+    const room = calls.get(cid);
+    if (room) for (const [id, v] of room) if (v.guest && id !== except) sendTo(id, msg);
+  };
   const online = () => [...sockets.keys()];
 
   function channelFor(req, min = 'member') {
@@ -216,7 +225,7 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
     res.json(await iceSvc.forUser(req.user.id));
   }));
 
-  const callList = (cid) => (calls.has(cid) ? [...calls.get(cid)].map(([id, v]) => ({ id, name: v.name, since: v.since })) : []);
+  const callList = (cid) => (calls.has(cid) ? [...calls.get(cid)].map(([id, v]) => ({ id, name: v.name, since: v.since, guest: !!v.guest })) : []);
   // A person stays in a call while any of their connections is in it. After a dropped connection the
   // browser reconnects and joins again, sometimes before the server notices the old one is gone.
   function leaveCall(uid, cid, ws) {
@@ -225,9 +234,84 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
     const me = room.get(uid);
     if (ws) { me.sockets.delete(ws); if (me.sockets.size) return; }
     room.delete(uid);
-    if (!room.size) calls.delete(cid);
-    broadcast(cid, { t: 'call.left', channel_id: cid, user_id: uid, participants: callList(cid) });
+    if (!room.size) { calls.delete(cid); endWhenEmpty(cid); }
+    callBroadcast(cid, { t: 'call.left', channel_id: cid, user_id: uid, participants: callList(cid) });
   }
+
+  // ---------- call links: someone without an account joins one call ----------
+  // The link holds a random secret; only its hash is stored. A link works for one channel's call, for
+  // LINK_TTL at most, and ends a little after a call it was used in ends, or when someone removes its guest.
+  const LINK_TTL = callLinks.ttlMs || 12 * 3600 * 1000;
+  const LINK_GRACE = callLinks.graceMs ?? 2 * 60 * 1000;
+  const linkMade = A.rateLimiter(30, 3600 * 1000);
+  const linkLooked = A.rateLimiter(60, 10 * 60 * 1000);
+  const endTimers = new Map(); // channelId -> timer that ends used links once the call stays empty
+  const hashToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+  function liveLink(hash) {
+    const l = one('SELECT * FROM call_links WHERE token_hash = ?', hash);
+    if (!l || l.ended_at || l.expires_at <= Date.now()) return null;
+    const c = one('SELECT archived FROM channels WHERE id = ?', l.channel_id);
+    return c && !c.archived ? l : null;
+  }
+  const linkFor = (token) => (typeof token === 'string' && /^[A-Za-z0-9_-]{30,64}$/.test(token) ? liveLink(hashToken(token)) : null);
+  function endLink(hash, why) {
+    run('UPDATE call_links SET ended_at = ? WHERE token_hash = ? AND ended_at IS NULL', Date.now(), hash);
+    for (const id of [...guests]) {
+      const set = sockets.get(id);
+      if (set) for (const ws of set) if (ws.user.linkHash === hash) ws.close(why === 'removed' ? 4003 : 4004, why);
+    }
+  }
+  function endWhenEmpty(cid) {
+    clearTimeout(endTimers.get(cid));
+    const t = setTimeout(() => {
+      endTimers.delete(cid);
+      if (calls.has(cid)) return;
+      for (const l of all('SELECT token_hash FROM call_links WHERE channel_id = ? AND used_at IS NOT NULL AND ended_at IS NULL', cid)) endLink(l.token_hash, 'ended');
+    }, LINK_GRACE);
+    t.unref();
+    endTimers.set(cid, t);
+  }
+  // a link counts as used once its guest and someone from the workspace are in the call together
+  function markUsed(cid) {
+    const room = calls.get(cid);
+    if (!room) return;
+    const vals = [...room.values()];
+    if (!vals.some((v) => !v.guest)) return;
+    for (const v of vals) if (v.guest) run('UPDATE call_links SET used_at = COALESCE(used_at, ?) WHERE token_hash = ?', Date.now(), v.linkHash);
+  }
+
+  app.post('/api/channels/:id/call-link', auth.requireUser, (req, res) => {
+    const c = channelFor(req);
+    if (c.archived) throw new HttpError(400, 'This channel is archived.');
+    if (req.user.role === 'guest') throw new HttpError(403, 'Guests in this workspace cannot make call links.');
+    if (!linkMade(req.user.id)) throw new HttpError(429, 'Too many call links. Wait a while, then try again.');
+    const token = crypto.randomBytes(32).toString('base64url');
+    const now = Date.now();
+    run('INSERT INTO call_links (token_hash, channel_id, created_by, created_at, expires_at) VALUES (?,?,?,?,?)', hashToken(token), c.id, req.user.id, now, now + LINK_TTL);
+    audit(req, 'call.link_made', c.id);
+    res.json({ path: `${linkBase}/call/${token}`, expiresAt: now + LINK_TTL });
+  });
+  // what the guest's page needs before joining: who invited them. Nothing about the channel or workspace.
+  app.get('/api/guest/call/:token', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!linkLooked(req.ip || 'x')) return res.status(429).json({ error: 'Too many tries. Wait a few minutes.' });
+    const l = linkFor(req.params.token);
+    if (!l) return res.status(404).json({ error: 'This call link has ended or is not right. Ask for a new one.' });
+    const by = l.created_by && one('SELECT name FROM users WHERE id = ?', l.created_by);
+    res.json({ host: (by && by.name) || 'Someone', expiresAt: l.expires_at });
+  });
+  app.get('/api/guest/call/:token/ice', wrap(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const l = linkFor(req.params.token);
+    if (!l) return res.status(404).json({ error: 'This call link has ended.' });
+    res.json(await iceSvc.forUser('guest_' + l.token_hash.slice(0, 12)));
+  }));
+  app.get('/call/:token', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer'); // the link is the key: never pass it on
+    res.setHeader('X-Robots-Tag', 'noindex');
+    res.sendFile(path.join(__dirname, '..', 'public', 'call.html'));
+  });
 
   // ---------- sockets ----------
   function attachSockets(server) {
@@ -236,6 +320,14 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
       if (!req.url.startsWith('/ws')) return socket.destroy();
       const origin = req.headers.origin;
       try { if (origin && new URL(origin).host !== req.headers.host) return socket.destroy(); } catch { return socket.destroy(); }
+      if (req.url.startsWith('/ws/guest')) {
+        const q = new URL(req.url, 'http://x').searchParams;
+        const link = linkFor(q.get('t'));
+        if (!link) { socket.write('HTTP/1.1 410 Gone\r\n\r\n'); return socket.destroy(); }
+        const name = plainText(q.get('name') || '', 40).replace(/\s+/g, ' ').trim() || 'Guest';
+        const guest = { id: 'g_' + crypto.randomBytes(12).toString('base64url'), name: name + ' (guest)', guest: true, linkHash: link.token_hash, cid: link.channel_id, role: 'none' };
+        return wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, guest));
+      }
       const user = auth.userFromRequest(req);
       if (!user) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, user));
@@ -260,8 +352,14 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
       const first = !sockets.has(user.id);
       if (first) sockets.set(user.id, new Set());
       sockets.get(user.id).add(ws);
-      if (first) broadcastAll({ t: 'presence', user_id: user.id, online: true });
-      ws.send(JSON.stringify({ t: 'hello', user_id: user.id, online: online() }));
+      if (user.guest) {
+        // a guest sees nothing of the workspace: no presence, no people, only their one call
+        guests.add(user.id);
+        ws.send(JSON.stringify({ t: 'hello', user_id: user.id, name: user.name, guest: true, channel_id: user.cid }));
+      } else {
+        if (first) broadcastAll({ t: 'presence', user_id: user.id, online: true });
+        ws.send(JSON.stringify({ t: 'hello', user_id: user.id, online: online() }));
+      }
       // Call setup sends a burst of network candidates (more with a TURN relay), so call signals get
       // their own, larger allowance and cannot crowd out or be crowded out by chat traffic.
       let budget = 60, signals = 600;
@@ -271,6 +369,11 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
         let msg;
         try { msg = JSON.parse(raw); } catch { return; }
         if (!msg || (msg.t === 'call.signal' ? --signals : --budget) < 0) return;
+        if (user.guest) {
+          // re-check the link still works
+          if (!liveLink(user.linkHash)) return ws.close(4004, 'ended');
+          return handleGuest(ws, user, msg);
+        }
         // re-check the account is still active
         if (!one("SELECT 1 AS x FROM users WHERE id = ? AND status = 'active'", user.id)) return ws.close(4001, 'disabled');
         handle(ws, user, msg);
@@ -281,7 +384,13 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
         for (const cid of ws.calls) leaveCall(user.id, cid, ws);
         for (const fid of ws.files) { const s = fileWatchers.get(fid); if (s) { s.delete(ws); if (!s.size) fileWatchers.delete(fid); else notifyFile(fid, presenceForFile(fid)); } }
         const set = sockets.get(user.id);
-        if (set) { set.delete(ws); if (!set.size) { sockets.delete(user.id); broadcastAll({ t: 'presence', user_id: user.id, online: false }); } }
+        if (set) {
+          set.delete(ws);
+          if (!set.size) {
+            sockets.delete(user.id);
+            if (user.guest) guests.delete(user.id); else broadcastAll({ t: 'presence', user_id: user.id, online: false });
+          }
+        }
       });
     });
   }
@@ -320,39 +429,64 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
       }
       case 'call.join': {
         if (!cid || !isMember(cid, user.id)) return;
-        if (!calls.has(cid)) calls.set(cid, new Map());
-        const room = calls.get(cid);
-        if (room.size >= 8 && !room.has(user.id)) return ws.send(JSON.stringify({ t: 'call.full', channel_id: cid }));
-        const peers = [...room.keys()].filter((id) => id !== user.id);
-        const me = room.get(user.id) || { name: user.name, since: Date.now(), sockets: new Set() };
-        me.sockets.add(ws);
-        room.set(user.id, me);
-        ws.calls.add(cid);
-        ws.send(JSON.stringify({ t: 'call.joined', channel_id: cid, peers, participants: callList(cid) }));
-        broadcast(cid, { t: 'call.peer', channel_id: cid, user_id: user.id, name: user.name, participants: callList(cid) }, user.id);
+        joinCall(ws, user, cid);
+        break;
+      }
+      case 'call.remove': {
+        // anyone from the workspace in the channel can send a guest out; their link stops working
+        const room = cid && calls.get(cid);
+        const target = room && room.get(String(msg.user_id || ''));
+        if (!target || !target.guest || !isMember(cid, user.id)) return;
+        endLink(target.linkHash, 'removed');
+        audit({ user, ip: null }, 'call.guest_removed', cid, { name: target.name });
         break;
       }
       case 'call.leave':
         if (cid) { leaveCall(user.id, cid, ws); ws.calls.delete(cid); }
         break;
-      case 'call.signal': {
-        // relay SDP / ICE to one peer who is in the same call
-        const room = cid && calls.get(cid);
-        if (!room || !room.has(user.id) || !room.has(msg.to)) return;
-        const data = msg.data && typeof msg.data === 'object' ? msg.data : null;
-        if (!data) return;
-        sendTo(msg.to, { t: 'call.signal', channel_id: cid, from: user.id, name: user.name, data });
-        break;
-      }
-      case 'call.state': {
-        const room = cid && calls.get(cid);
-        if (!room || !room.has(user.id)) return;
-        broadcast(cid, { t: 'call.state', channel_id: cid, user_id: user.id, muted: !!msg.muted, video: !!msg.video, hand: !!msg.hand }, user.id);
-        break;
-      }
+      case 'call.signal': relaySignal(user, cid, msg); break;
+      case 'call.state': callState(user, cid, msg); break;
       case 'ping': ws.send(JSON.stringify({ t: 'pong' })); break;
       default: break;
     }
+  }
+
+  function joinCall(ws, user, cid) {
+    clearTimeout(endTimers.get(cid)); endTimers.delete(cid);
+    if (!calls.has(cid)) calls.set(cid, new Map());
+    const room = calls.get(cid);
+    if (room.size >= 8 && !room.has(user.id)) return ws.send(JSON.stringify({ t: 'call.full', channel_id: cid }));
+    const peers = [...room.keys()].filter((id) => id !== user.id);
+    const me = room.get(user.id) || { name: user.name, since: Date.now(), sockets: new Set(), guest: !!user.guest, linkHash: user.linkHash };
+    me.sockets.add(ws);
+    room.set(user.id, me);
+    ws.calls.add(cid);
+    markUsed(cid);
+    ws.send(JSON.stringify({ t: 'call.joined', channel_id: cid, peers, participants: callList(cid) }));
+    callBroadcast(cid, { t: 'call.peer', channel_id: cid, user_id: user.id, name: user.name, guest: !!user.guest, participants: callList(cid) }, user.id);
+  }
+  // relay SDP / ICE to one peer who is in the same call
+  function relaySignal(user, cid, msg) {
+    const room = cid && calls.get(cid);
+    if (!room || !room.has(user.id) || !room.has(msg.to)) return;
+    const data = msg.data && typeof msg.data === 'object' ? msg.data : null;
+    if (!data) return;
+    sendTo(msg.to, { t: 'call.signal', channel_id: cid, from: user.id, name: user.name, data });
+  }
+  function callState(user, cid, msg) {
+    const room = cid && calls.get(cid);
+    if (!room || !room.has(user.id)) return;
+    callBroadcast(cid, { t: 'call.state', channel_id: cid, user_id: user.id, muted: !!msg.muted, video: !!msg.video, hand: !!msg.hand }, user.id);
+  }
+  // a guest can only be in the one call their link is for: everything else they send is ignored
+  function handleGuest(ws, user, msg) {
+    const cid = msg.channel_id === user.cid ? user.cid : null;
+    if (msg.t === 'ping') return ws.send(JSON.stringify({ t: 'pong' }));
+    if (!cid) return;
+    if (msg.t === 'call.join') joinCall(ws, user, cid);
+    else if (msg.t === 'call.leave') { leaveCall(user.id, cid, ws); ws.calls.delete(cid); }
+    else if (msg.t === 'call.signal') relaySignal(user, cid, msg);
+    else if (msg.t === 'call.state') callState(user, cid, msg);
   }
 
   function kick(uid) {
@@ -360,7 +494,7 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
     if (set) for (const ws of set) ws.close(4001, 'disabled');
   }
   let closing = false;
-  const close = () => { closing = true; if (wss) { for (const c of wss.clients) c.terminate(); wss.close(); } };
+  const close = () => { closing = true; for (const t of endTimers.values()) clearTimeout(t); if (wss) { for (const c of wss.clients) c.terminate(); wss.close(); } };
 
   return { attachSockets, notifyFile, kick, close, sendTo, broadcastAll };
 }

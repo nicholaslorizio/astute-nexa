@@ -332,6 +332,7 @@ table.sheet tr.frozen th, table.sheet tr.frozen td { position: sticky; top: 27px
 .tile.speaking { box-shadow: 0 0 0 3px var(--ok); }
 .tile .state { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 86%; text-align: center; color: #fff; font-size: 13px; line-height: 1.4; background: rgba(0, 0, 0, .55); padding: 6px 12px; border-radius: 8px; }
 .tile .state:empty { display: none; }
+.tile .kick { position: absolute; right: 8px; top: 8px; background: rgba(0, 0, 0, .6); border-color: transparent; color: #fff; }
 .tile .state.bad { background: rgba(160, 30, 40, .85); }
 .tile .tap { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); background: #fff; color: #111; border-radius: 20px; }
 .call-bar { display: flex; justify-content: center; gap: 10px; padding: 14px; }

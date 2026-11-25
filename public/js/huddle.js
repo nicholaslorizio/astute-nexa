@@ -320,14 +320,14 @@
       try { [media, ice] = await Promise.all([getMedia(video), loadIce()]); } finally { this.starting = false; }
       if (!media) return;
       const { stream } = media; video = media.video;
-      C = { cid, label, stream, ice, peers: new Map(), muted: false, video: !!video, screen: null, offs: [] };
+      C = { cid, label, stream, ice, peers: new Map(), guests: new Set(), muted: false, video: !!video, screen: null, offs: [] };
       const grid = h('div', { class: 'call-grid' });
       const btn = (ic, title, fn, cls = '') => h('button', { class: 'btn ' + cls, title, 'aria-label': title, onclick: fn }, icon(ic, 18));
       const micB = btn('mic', 'Mute', () => this.toggleMic()), camB = btn('video', 'Camera', () => this.toggleCam()), shareB = btn('screen', 'Share screen', () => this.toggleScreen());
       C.el = h('div', { class: 'call' }, h('div', { class: 'row', style: { color: '#fff', padding: '10px 16px' } }, h('b', {}, label), h('span', { class: 'muted small', 'data-count': '' }), h('span', { class: 'grow' }),
         h('button', { class: 'btn ghost sm', style: { color: '#fff' }, onclick: () => C.el.classList.toggle('mini') }, 'Minimize')), grid,
         h('div', { class: 'call-bar' }, micB, camB, navigator.mediaDevices.getDisplayMedia ? shareB : null, btn('hand', 'Raise hand', () => { C.hand = !C.hand; this.state(); toast(C.hand ? 'Hand raised' : 'Hand lowered'); }),
-          btn('link', 'Copy call link', () => Nexa.copyText(location.origin + (Nexa.state.linkBase || '') + '/#/huddle/' + cid)), h('button', { class: 'btn leave', onclick: () => this.leave() }, icon('phone', 18), 'Leave')));
+          btn('link', 'Invite someone to this call', () => this.invite(cid)), h('button', { class: 'btn leave', onclick: () => this.leave() }, icon('phone', 18), 'Leave')));
       Object.assign(C, { grid, micB, camB, shareB });
       document.body.append(C.el);
       this.tile('me', 'You', stream, true);
@@ -352,13 +352,43 @@
       Nexa.rt.send({ t: 'call.join', channel_id: cid });
       if (C.ac && C.ac.state === 'suspended') C.ac.resume().catch(() => {});
     },
-    count(list) { const c = C && C.el.querySelector('[data-count]'); if (c) c.textContent = ` · ${list.length} in call`; },
+    count(list) {
+      const c = C && C.el.querySelector('[data-count]'); if (c) c.textContent = ` · ${list.length} in call`;
+      if (C) for (const x of list) if (x.guest && !C.guests.has(x.id)) { C.guests.add(x.id); this.guestTile(x.id); }
+    },
+    // A link for someone without an account: it opens this one call and nothing else in the workspace.
+    async invite(cid) {
+      let r;
+      try { r = await api.post(`/api/channels/${encodeURIComponent(cid)}/call-link`, {}); } catch (err) { return fail(err); }
+      const url = location.origin + r.path;
+      const share = () => navigator.share({ title: 'Video call', text: 'Tap to join my video call:', url }).catch(() => {});
+      if (navigator.share && matchMedia('(pointer: coarse)').matches) return share();
+      const input = h('input', { class: 'input', readonly: true, value: url, onfocus: (e) => e.target.select() });
+      modal({
+        title: 'Invite someone to this call',
+        body: [h('p', { style: { marginTop: 0 } }, 'Text or email this link. They tap it, type their name and join. No account or app needed.'),
+          input,
+          h('p', { class: 'muted small' }, 'The link only opens this call. They can\'t see your files or chat. It stops working when the call ends or after 12 hours, and you can remove them from the call.')],
+        actions: [navigator.share ? { label: 'Share…', keepOpen: true, onClick: share } : null,
+          { label: 'Copy link', kind: 'primary', onClick: () => Nexa.copyText(url) }].filter(Boolean),
+      });
+    },
+    guestTile(pid) {
+      const t = C && C.guests.has(pid) && C.grid.querySelector(`[data-peer="${pid}"]`);
+      if (!t || t.querySelector('.kick')) return;
+      t.append(h('button', { class: 'btn sm kick', type: 'button', title: 'Remove from call', onclick: async () => {
+        const name = (C.peers.get(pid) || {}).name || 'this guest';
+        if (!(await confirmBox(`Remove ${name}?`, 'They leave the call and their link stops working.', 'Remove', true))) return;
+        Nexa.rt.send({ t: 'call.remove', channel_id: C.cid, user_id: pid });
+      } }, 'Remove'));
+    },
     tile(key, name, stream, mine) {
       let t = C.grid.querySelector(`[data-peer="${key}"]`);
       if (!t) {
         t = h('div', { class: 'tile', 'data-peer': key }, h('video', { autoplay: true, playsinline: true, muted: !!mine }),
           h('span', { class: 'name', 'data-n': name }, name), h('span', { class: 'state', role: 'status' }));
         C.grid.append(t);
+        if (C.guests.has(key)) setTimeout(() => this.guestTile(key));
       }
       const v = t.querySelector('video');
       v.muted = !!mine; if (mine) v.style.transform = 'scaleX(-1)';
@@ -491,7 +521,7 @@
       const p = C && C.peers.get(pid);
       if (p) { for (const t of Object.values(p.timers)) clearTimeout(t); p.pc.onicecandidate = p.pc.ontrack = p.pc.onnegotiationneeded = p.pc.onconnectionstatechange = p.pc.oniceconnectionstatechange = null; p.pc.close(); C.peers.delete(pid); }
       const t = C && C.grid.querySelector(`[data-peer="${pid}"]`);
-      if (t && !keepTile) t.remove();
+      if (t && !keepTile) { t.remove(); C.guests.delete(pid); }
     },
     state() { if (C) Nexa.rt.send({ t: 'call.state', channel_id: C.cid, muted: C.muted, video: C.video, hand: !!C.hand }); },
     toggleMic() { C.muted = !C.muted; C.stream.getAudioTracks().forEach((t) => { t.enabled = !C.muted; }); clear(C.micB).append(icon(C.muted ? 'micoff' : 'mic', 18)); C.micB.classList.toggle('off', C.muted); this.state(); },

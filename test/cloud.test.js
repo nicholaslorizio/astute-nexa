@@ -199,6 +199,32 @@ test('cloud: many workspaces from one link, kept apart', async (t) => {
     assert.match(r.text, new RegExp(l.path.replace(/[/]/g, '\\/') + '\\/'));
   });
 
+  await t.test('call links let someone with no account join one call from a phone', async () => {
+    const ch = (await acme.get('/api/channels')).body.channels[0];
+    const link = (await acme.post(`/api/channels/${ch.id}/call-link`, {})).body;
+    assert.match(link.path, /^\/w\/acme\/call\/[A-Za-z0-9_-]{43}$/);
+    const dad = browser(cloud.base); // a phone that has never seen Nexa
+    const page = await dad.get(link.path);
+    assert.equal(page.status, 200);
+    // the page loads its files relative to the link, so they come from this workspace
+    for (const f of page.text.match(/(?:src|href)="(\.\.\/[^"]+)"/g).map((x) => x.split('"')[1])) {
+      const url = new URL(f, cloud.base + link.path).pathname;
+      assert.equal((await dad.get(url)).status, 200, url);
+    }
+    const token = link.path.split('/').pop();
+    assert.equal((await dad.get(`/w/acme/api/guest/call/${token}`)).body.host, 'Olive acme');
+    assert.equal((await dad.get(`/w/beta/api/guest/call/${token}`)).status, 404, 'a link only works in its own workspace');
+    const ws = new WebSocket(`${cloud.base.replace('http', 'ws')}/w/acme/ws/guest?t=${token}&name=Dad`, { headers: { origin: cloud.base } });
+    const hello = await new Promise((ok, no) => { ws.on('message', (d) => ok(JSON.parse(d))); ws.on('error', no); ws.on('unexpected-response', (q, r) => no(new Error('HTTP ' + r.statusCode))); });
+    assert.equal(hello.guest, true);
+    assert.equal(hello.channel_id, ch.id);
+    ws.terminate();
+    const wrong = new WebSocket(`${cloud.base.replace('http', 'ws')}/w/beta/ws/guest?t=${token}&name=Dad`, { headers: { origin: cloud.base } });
+    await assert.rejects(new Promise((ok, no) => { wrong.on('open', ok); wrong.on('error', no); wrong.on('unexpected-response', (q, r) => no(new Error('HTTP ' + r.statusCode))); }), /410/);
+    const nobody = new WebSocket(`${cloud.base.replace('http', 'ws')}/w/nope/ws/guest?t=${token}&name=Dad`, { headers: { origin: cloud.base } });
+    await assert.rejects(new Promise((ok, no) => { nobody.on('open', ok); nobody.on('error', no); }));
+  });
+
   await t.test('each workspace has its own storage limit', async () => {
     const small = await startCloud(() => ({ workspaceQuotaBytes: 1500 }));
     t.after(() => small.stop());

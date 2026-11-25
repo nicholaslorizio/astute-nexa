@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#0B1020">
+  <title>Video call</title>
+  <link rel="stylesheet" href="../css/call.css">
+</head>
+<body>
+  <main id="app" class="gc">
+    <section id="s-load" class="gc-card"><p class="gc-muted">Opening the call…</p></section>
+
+    <section id="s-join" class="gc-card" hidden>
+      <h1 id="j-title">You're invited to a video call</h1>
+      <p class="gc-muted">No account or app needed. Type your name, then tap Join.</p>
+      <form id="j-form">
+        <label class="gc-label" for="j-name">Your name</label>
+        <input id="j-name" class="gc-input" maxlength="40" autocomplete="name" autocapitalize="words" enterkeyhint="go" required placeholder="Your name">
+        <button class="gc-btn gc-go" type="submit">Join the call</button>
+        <button class="gc-btn gc-plain" type="button" id="j-audio">Join with sound only</button>
+      </form>
+      <p class="gc-small gc-muted">Your phone will ask to use the camera and microphone. Tap Allow.</p>
+      <p class="gc-small gc-bad" id="j-err" role="alert"></p>
+    </section>
+
+    <section id="s-call" class="gc-call" hidden>
+      <div class="gc-status" id="c-status" role="status">Joining…</div>
+      <div class="gc-grid" id="c-grid"></div>
+      <video id="c-me" class="gc-me" autoplay playsinline muted></video>
+      <div class="gc-bar">
+        <button class="gc-round" id="c-mic" type="button" aria-pressed="false"><span class="gc-ico" data-i="mic"></span><span class="gc-lbl">Mute</span></button>
+        <button class="gc-round" id="c-cam" type="button" aria-pressed="false"><span class="gc-ico" data-i="cam"></span><span class="gc-lbl">Camera off</span></button>
+        <button class="gc-round gc-end" id="c-end" type="button"><span class="gc-ico" data-i="end"></span><span class="gc-lbl">Hang up</span></button>
+      </div>
+    </section>
+
+    <section id="s-done" class="gc-card" hidden>
+      <h1 id="d-title">You left the call</h1>
+      <p class="gc-muted" id="d-text">Thanks for calling.</p>
+      <button class="gc-btn gc-go" type="button" id="d-again">Join again</button>
+    </section>
+  </main>
+  <script src="../js/guest-call.js"></script>
+</body>
+</html>
