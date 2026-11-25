@@ -6,7 +6,11 @@
 
 <p align="center">Write · Grid · Deck · Huddle · Relay · Cadence · Vault</p>
 
-<h2 align="center"><a href="https://github.com/nicholaslorizio/astute-nexa/raw/main/download/Astute-Nexa-Setup.exe">Download free for Windows</a></h2>
+<h2 align="center"><a href="https://astute-nexa.onrender.com/cloud">Use it free in your browser</a></h2>
+
+<p align="center">Nothing to install · make a workspace for your team and invite them with one link · chat and video calls between users<br>On the free plan, the first visit after a quiet spell can take about a minute to load.</p>
+
+<h3 align="center"><a href="https://github.com/nicholaslorizio/astute-nexa/raw/main/download/Astute-Nexa-Setup.exe">Download free for Windows</a></h3>
 
 <p align="center">Windows 10 and 11 · 29 MB · nothing else to install<br>Also for <a href="#mac">Mac</a> and <a href="#linux">Linux</a></p>
 
@@ -34,7 +38,7 @@ On macOS 14 or older, Control-click the app, choose **Open**, then **Open** agai
 
 Nexa opens in its own window when Chrome, Chromium, Edge or Brave is installed. Your files stay in `~/.astute-nexa`.
 
-The Windows app runs on your PC only, so you can try every app on your own. Chat and calls between users come with the cloud version, which is on the way. A team that wants to work together today can run Nexa on a server, as shown below.
+The Windows app runs on your PC only, so you can try every app on your own. For chat and calls between users, use the free online version at [astute-nexa.onrender.com/cloud](https://astute-nexa.onrender.com/cloud), or run Nexa on your own server as shown below.
 
 ---
 
