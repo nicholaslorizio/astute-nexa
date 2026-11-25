@@ -183,8 +183,16 @@ function attachVault({ store, auth, filePerm, audit, HttpError, app, wrap, huddl
     if (!l || (l.expires_at && l.expires_at < Date.now())) return null;
     const f = one('SELECT * FROM files WHERE id = ?', l.file_id);
     const owner = f && one("SELECT id, role, status FROM users WHERE id = ?", f.owner_id);
-    if (!f || f.trashed || !owner || owner.status !== 'active') return null;
+    if (!f || inTrash(f) || !owner || owner.status !== 'active') return null;
     return { l, f };
+  }
+  // True when the file, or any folder it sits in, is in the trash.
+  function inTrash(f) {
+    for (let c = f, i = 0; c && i < 32; i++) {
+      if (c.trashed) return true;
+      c = c.parent_id ? one('SELECT id, parent_id, trashed FROM files WHERE id = ?', c.parent_id) : null;
+    }
+    return false;
   }
   function childOf(folder, childId) {
     let c = one('SELECT * FROM files WHERE id = ?', childId);

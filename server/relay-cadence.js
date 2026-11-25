@@ -5,6 +5,7 @@
 // (NEXA_SMTP_URL); without one, outside addresses are refused with a clear message.
 const A = require('./auth');
 const { sanitizeDocHtml, plainText } = require('./sanitize');
+const TZ = require('./tz');
 
 const DAY = 86400000;
 
@@ -74,7 +75,7 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     const internal = new Map();
     const external = [];
     for (const a of all3) {
-      const u = one("SELECT id, email FROM users WHERE email = ? AND status = 'active'", a);
+      const u = one("SELECT id, email, role FROM users WHERE email = ? AND status = 'active'", a);
       if (u) internal.set(u.id, u); else external.push(a);
     }
     if (!draft && external.length && !transport) {
@@ -82,9 +83,19 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     }
     if (req.user.role === 'guest' && external.length) throw new HttpError(403, 'Guests can only email people in this workspace.');
     const atts = Array.isArray(b.attachments) ? b.attachments.slice(0, 20) : [];
+    // Sending a file gives the people it goes to view access, so only its owner or an editor can do that,
+    // the same rule as sharing a file in a Huddle channel. Someone who can only view a file can still
+    // send it to people who can already open it.
+    const canShare = new Set();
     for (const fid of atts) {
       const f = one('SELECT * FROM files WHERE id = ?', fid);
-      if (!f || filePerm(req.user, f) === 'none') throw new HttpError(404, 'An attachment was not found.');
+      const perm = filePerm(req.user, f);
+      if (!f || perm === 'none') throw new HttpError(404, 'An attachment was not found.');
+      if (perm === 'owner' || perm === 'edit') { canShare.add(fid); continue; }
+      if (draft) continue;
+      for (const [uid, u] of internal) {
+        if (uid !== req.user.id && filePerm(u, f) === 'none') throw new HttpError(403, `You can view "${f.title}" but not share it, and ${u.email} can't open it. Ask its owner to share it, or remove the attachment.`);
+      }
     }
     let threadId = A.id('t');
     if (b.reply_to) {
@@ -108,8 +119,9 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
           if (uid === req.user.id) continue;
           run("INSERT OR IGNORE INTO mail_boxes (message_id, user_id, folder) VALUES (?,?, 'inbox')", mid, uid);
           for (const fid of atts) {
+            if (!canShare.has(fid)) continue;
             const f = one('SELECT * FROM files WHERE id = ?', fid);
-            if (filePerm({ id: uid, role: 'member' }, f) === 'none') run('INSERT OR IGNORE INTO file_shares (file_id, user_id, perm) VALUES (?,?,?)', fid, uid, 'view');
+            if (filePerm(internal.get(uid), f) === 'none') run('INSERT OR IGNORE INTO file_shares (file_id, user_id, perm) VALUES (?,?,?)', fid, uid, 'view');
           }
         }
       }
@@ -165,7 +177,7 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     const owner = one('SELECT name, email FROM users WHERE id = ?', e.owner_id);
     const mine = attendees.find((a) => a.user_id === uid);
     return { id: e.id, title: e.title, description: e.description, location: e.location, start_at: e.start_at, end_at: e.end_at, all_day: !!e.all_day,
-      recurrence: e.recurrence, repeat_until: e.repeat_until, color: e.color, huddle: !!e.huddle, owner_id: e.owner_id, owner_name: owner && owner.name,
+      recurrence: e.recurrence, repeat_until: e.repeat_until, tz: e.tz || null, color: e.color, huddle: !!e.huddle, owner_id: e.owner_id, owner_name: owner && owner.name,
       owner_email: owner && owner.email, attendees, my_response: e.owner_id === uid ? 'owner' : (mine ? mine.response : null), can_edit: e.owner_id === uid };
   }
   function visibleEvent(req, id) {
@@ -174,21 +186,35 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     if (e.owner_id !== req.user.id && !one('SELECT 1 AS x FROM event_attendees WHERE event_id = ? AND user_id = ?', e.id, req.user.id)) throw new HttpError(404, 'Event not found.');
     return e;
   }
-  function expand(e, from, to) {
+  // Repeats are worked out on the organizer's own clock (the event's time zone), so an evening event
+  // keeps its weekday and its hour across daylight saving. Events saved before time zones were kept
+  // use the viewer's time zone instead.
+  function expand(e, from, to, viewerTz) {
     const dur = e.end_at - e.start_at;
     if (e.recurrence === 'none') return e.end_at >= from && e.start_at <= to ? [{ start_at: e.start_at, end_at: e.end_at }] : [];
-    const out = [];
+    const tz = TZ.validTz(e.tz) ? e.tz : TZ.validTz(viewerTz) ? viewerTz : 'UTC';
+    const p = TZ.parts(e.start_at, tz);
     const until = Math.min(to, e.repeat_until || Infinity);
-    let t = e.start_at;
+    const monthly = e.recurrence === 'monthly';
+    const step = e.recurrence === 'weekly' ? 7 : 1;
+    // Start a little before the range asked for, so old repeating events still show.
     let i = 0;
-    while (t <= until && i < 2000) {
-      const d = new Date(t);
-      const weekend = d.getUTCDay() === 0 || d.getUTCDay() === 6;
-      if (t + dur >= from && !(e.recurrence === 'weekdays' && weekend)) out.push({ start_at: t, end_at: t + dur, occurrence: i });
-      i++;
-      if (e.recurrence === 'daily' || e.recurrence === 'weekdays') t = e.start_at + i * DAY;
-      else if (e.recurrence === 'weekly') t = e.start_at + i * 7 * DAY;
-      else if (e.recurrence === 'monthly') { const s = new Date(e.start_at); s.setUTCMonth(s.getUTCMonth() + i); t = s.getTime(); }
+    if (from - dur > e.start_at) i = Math.max(0, Math.floor((from - dur - e.start_at) / ((monthly ? 31 : step) * DAY)) - 2);
+    const out = [];
+    for (let n = 0; n < 3000; n++, i++) {
+      let y, m, d;
+      if (monthly) {
+        const k = p.m - 1 + i;
+        y = p.y + Math.floor(k / 12); m = (k % 12) + 1; d = p.d;
+        if (d > TZ.daysInMonth(y, m)) { if (TZ.toMs(y, m, 1, 0, 0, 0, 0, tz) > until) break; continue; } // no 31st this month: skip it
+      } else {
+        const x = new Date(Date.UTC(p.y, p.m - 1, p.d + i * step));
+        y = x.getUTCFullYear(); m = x.getUTCMonth() + 1; d = x.getUTCDate();
+      }
+      const t = TZ.toMs(y, m, d, p.h, p.mi, p.s, p.ms, tz);
+      if (t > until) break;
+      if (e.recurrence === 'weekdays') { const w = TZ.weekday(y, m, d); if (w === 0 || w === 6) continue; }
+      if (t + dur >= from) out.push({ start_at: t, end_at: t + dur, occurrence: i });
     }
     return out;
   }
@@ -202,7 +228,7 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     const out = [];
     for (const e of eventsFor(req.user.id, from, to)) {
       const base = eventRow(e, req.user.id);
-      for (const occ of expand(e, from, to)) out.push({ ...base, ...occ });
+      for (const occ of expand(e, from, to, req.query.tz)) out.push({ ...base, ...occ });
     }
     const pending = all(`SELECT e.* FROM events e JOIN event_attendees a ON a.event_id = e.id WHERE a.user_id = ? AND a.response = 'pending' AND e.end_at >= ?`, req.user.id, Date.now())
       .map((e) => eventRow(e, req.user.id));
@@ -231,7 +257,7 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     if (end - start > 60 * DAY) throw new HttpError(400, 'Events can last up to 60 days.');
     const recurrence = ['none', 'daily', 'weekdays', 'weekly', 'monthly'].includes(b.recurrence) ? b.recurrence : 'none';
     return { title, start, end, recurrence, description: plainText(b.description, 8000), location: plainText(b.location, 300),
-      all_day: b.all_day ? 1 : 0, repeat_until: b.repeat_until ? +b.repeat_until : null, color: typeof b.color === 'string' ? b.color.slice(0, 9) : null, huddle: b.huddle ? 1 : 0 };
+      all_day: b.all_day ? 1 : 0, repeat_until: b.repeat_until ? +b.repeat_until : null, tz: TZ.validTz(b.tz) ? b.tz : null, color: typeof b.color === 'string' ? b.color.slice(0, 9) : null, huddle: b.huddle ? 1 : 0 };
   }
 
   app.post('/api/events', auth.requireUser, (req, res) => {
@@ -240,8 +266,8 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     const now = Date.now();
     let invited = [];
     tx(() => {
-      run(`INSERT INTO events (id, owner_id, title, description, location, start_at, end_at, all_day, recurrence, repeat_until, color, huddle, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, eid, req.user.id, v.title, v.description, v.location, v.start, v.end, v.all_day, v.recurrence, v.repeat_until, v.color, v.huddle, now, now);
+      run(`INSERT INTO events (id, owner_id, title, description, location, start_at, end_at, all_day, recurrence, repeat_until, tz, color, huddle, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, eid, req.user.id, v.title, v.description, v.location, v.start, v.end, v.all_day, v.recurrence, v.repeat_until, v.tz, v.color, v.huddle, now, now);
       invited = saveAttendees(eid, (req.body || {}).attendees, req.user.id);
     });
     for (const uid of invited) huddle.sendTo(uid, { t: 'event.invite', from: req.user.name, title: v.title, id: eid });
@@ -255,8 +281,8 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     const v = readEventBody({ ...eventRow(e, req.user.id), ...req.body });
     let invited = [];
     tx(() => {
-      run(`UPDATE events SET title = ?, description = ?, location = ?, start_at = ?, end_at = ?, all_day = ?, recurrence = ?, repeat_until = ?, color = ?, huddle = ?, updated_at = ? WHERE id = ?`,
-        v.title, v.description, v.location, v.start, v.end, v.all_day, v.recurrence, v.repeat_until, v.color, v.huddle, Date.now(), e.id);
+      run(`UPDATE events SET title = ?, description = ?, location = ?, start_at = ?, end_at = ?, all_day = ?, recurrence = ?, repeat_until = ?, tz = ?, color = ?, huddle = ?, updated_at = ? WHERE id = ?`,
+        v.title, v.description, v.location, v.start, v.end, v.all_day, v.recurrence, v.repeat_until, v.tz, v.color, v.huddle, Date.now(), e.id);
       if (req.body.attendees !== undefined) invited = saveAttendees(e.id, req.body.attendees, req.user.id);
     });
     for (const uid of invited) huddle.sendTo(uid, { t: 'event.invite', from: req.user.name, title: v.title, id: e.id });
@@ -289,7 +315,7 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     const out = {};
     for (const uid of ids) {
       const busy = [];
-      for (const e of eventsFor(uid, from, to)) for (const occ of expand(e, from, to)) if (!e.all_day) busy.push({ start_at: occ.start_at, end_at: occ.end_at });
+      for (const e of eventsFor(uid, from, to)) for (const occ of expand(e, from, to, req.query.tz)) if (!e.all_day) busy.push({ start_at: occ.start_at, end_at: occ.end_at });
       out[uid] = busy.sort((a, b) => a.start_at - b.start_at);
     }
     res.json({ busy: out });
@@ -314,9 +340,9 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
     const now = Date.now();
     tx(() => {
       for (const v of evs) {
-        run(`INSERT INTO events (id, owner_id, title, description, location, start_at, end_at, all_day, recurrence, created_at, updated_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?)`, A.id('ev'), req.user.id, plainText(v.title, 200) || 'Event', plainText(v.description, 8000), plainText(v.location, 300),
-          v.start_at, v.end_at, v.all_day ? 1 : 0, v.recurrence, now, now);
+        run(`INSERT INTO events (id, owner_id, title, description, location, start_at, end_at, all_day, recurrence, tz, created_at, updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, A.id('ev'), req.user.id, plainText(v.title, 200) || 'Event', plainText(v.description, 8000), plainText(v.location, 300),
+          v.start_at, v.end_at, v.all_day ? 1 : 0, v.recurrence, v.tz || null, now, now);
       }
     });
     audit(req, 'calendar.imported', null, { count: evs.length });
@@ -327,6 +353,11 @@ function attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap
 }
 
 // ---------- iCalendar helpers ----------
+const icsLocal = (ms, tz) => {
+  const p = TZ.parts(ms, tz);
+  const z = (n) => String(n).padStart(2, '0');
+  return `${p.y}${z(p.m)}${z(p.d)}T${z(p.h)}${z(p.mi)}${z(p.s)}`;
+};
 const icsDate = (ms, allDay) => {
   const d = new Date(ms);
   const p = (n) => String(n).padStart(2, '0');
@@ -345,8 +376,11 @@ function toIcs(events) {
   const rr = { daily: 'FREQ=DAILY', weekdays: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', weekly: 'FREQ=WEEKLY', monthly: 'FREQ=MONTHLY' };
   for (const e of events) {
     lines.push('BEGIN:VEVENT', `UID:${e.id}@nexa`, `DTSTAMP:${icsDate(Date.now())}`);
-    lines.push(e.all_day ? `DTSTART;VALUE=DATE:${icsDate(e.start_at, true)}` : `DTSTART:${icsDate(e.start_at)}`);
-    lines.push(e.all_day ? `DTEND;VALUE=DATE:${icsDate(e.end_at, true)}` : `DTEND:${icsDate(e.end_at)}`);
+    // A repeating event keeps its own time zone, so other calendars repeat it on the same local days and hours.
+    const zoned = !e.all_day && rr[e.recurrence] && TZ.validTz(e.tz);
+    const dt = (ms) => (zoned ? `;TZID=${e.tz}:${icsLocal(ms, e.tz)}` : `:${icsDate(ms)}`);
+    lines.push(e.all_day ? `DTSTART;VALUE=DATE:${icsDate(e.start_at, true)}` : `DTSTART${dt(e.start_at)}`);
+    lines.push(e.all_day ? `DTEND;VALUE=DATE:${icsDate(e.end_at, true)}` : `DTEND${dt(e.end_at)}`);
     lines.push(`SUMMARY:${icsText(e.title)}`);
     if (e.description) lines.push(`DESCRIPTION:${icsText(e.description)}`);
     if (e.location) lines.push(`LOCATION:${icsText(e.location)}`);
@@ -363,7 +397,10 @@ function parseIcsDate(v, params) {
   if (!m) return null;
   const [, y, mo, d, h = '0', mi = '0', s = '0', z] = m;
   if (!m[4] || /VALUE=DATE/.test(params)) return { ms: Date.UTC(+y, +mo - 1, +d), allDay: true };
-  return { ms: z ? Date.UTC(+y, +mo - 1, +d, +h, +mi, +s) : new Date(+y, +mo - 1, +d, +h, +mi, +s).getTime(), allDay: false };
+  if (z) return { ms: Date.UTC(+y, +mo - 1, +d, +h, +mi, +s), allDay: false };
+  const tzid = (/(?:^|;)TZID=("?)([^;":]+)\1/.exec(params) || [])[2];
+  if (TZ.validTz(tzid)) return { ms: TZ.toMs(+y, +mo, +d, +h, +mi, +s, 0, tzid), allDay: false, tz: tzid };
+  return { ms: new Date(+y, +mo - 1, +d, +h, +mi, +s).getTime(), allDay: false };
 }
 function parseIcs(text) {
   const lines = text.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '').split(/\r?\n/);
@@ -375,7 +412,7 @@ function parseIcs(text) {
     if (line === 'END:VEVENT') {
       if (cur && cur.start) {
         const end = cur.end || { ms: cur.start.ms + (cur.start.allDay ? DAY : 3600000), allDay: cur.start.allDay };
-        out.push({ title: cur.title || 'Event', description: cur.description || '', location: cur.location || '', start_at: cur.start.ms, end_at: end.ms, all_day: cur.start.allDay, recurrence: cur.recurrence || 'none' });
+        out.push({ title: cur.title || 'Event', description: cur.description || '', location: cur.location || '', start_at: cur.start.ms, end_at: end.ms, all_day: cur.start.allDay, recurrence: cur.recurrence || 'none', tz: cur.start.tz || null });
       }
       cur = null; continue;
     }

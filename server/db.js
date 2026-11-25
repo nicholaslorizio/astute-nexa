@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS events (
   all_day INTEGER NOT NULL DEFAULT 0,
   recurrence TEXT NOT NULL DEFAULT 'none' CHECK (recurrence IN ('none','daily','weekdays','weekly','monthly')),
   repeat_until INTEGER,
+  tz TEXT,
   color TEXT,
   huddle INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
@@ -173,6 +174,9 @@ function openDb(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
+  // Columns added after the first release. Older workspace files get them here.
+  const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  if (!cols('events').includes('tz')) db.exec('ALTER TABLE events ADD COLUMN tz TEXT');
   const tx = (fn) => {
     db.exec('BEGIN');
     try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }

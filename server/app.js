@@ -225,6 +225,8 @@ function createServer(opts = {}) {
   });
 
   // ---------- files ----------
+  // A file in the trash, or inside a folder in the trash, is closed to everyone but its owner
+  // until the owner puts it back.
   function filePerm(user, file) {
     if (!file || !user) return 'none';
     if (file.owner_id === user.id) return 'owner';
@@ -232,10 +234,12 @@ function createServer(opts = {}) {
     let cur = file;
     for (let depth = 0; cur && depth < 32; depth++) {
       if (cur.owner_id === user.id) return 'owner';
+      const trashed = cur.trashed !== undefined ? cur.trashed : (one('SELECT trashed FROM files WHERE id = ?', cur.id) || {}).trashed;
+      if (trashed) return 'none';
       const s = one('SELECT perm FROM file_shares WHERE file_id = ? AND user_id = ?', cur.id, user.id);
       if (s && PERM_RANK[s.perm] > PERM_RANK[best]) best = s.perm;
       if (user.role !== 'guest' && PERM_RANK[cur.workspace_perm] > PERM_RANK[best]) best = cur.workspace_perm;
-      cur = cur.parent_id ? one('SELECT id, owner_id, parent_id, workspace_perm FROM files WHERE id = ?', cur.parent_id) : null;
+      cur = cur.parent_id ? one('SELECT id, owner_id, parent_id, workspace_perm, trashed FROM files WHERE id = ?', cur.parent_id) : null;
     }
     return best;
   }
@@ -313,7 +317,8 @@ function createServer(opts = {}) {
                   f.trashed, f.workspace_perm, f.created_at, f.updated_at, f.updated_by FROM files f JOIN users u ON u.id = f.owner_id`;
     let rows;
     if (view === 'trash') rows = all(`${base} WHERE f.owner_id = ? AND f.trashed = 1 ORDER BY f.updated_at DESC`, u.id);
-    else if (view === 'shared') rows = all(`${base} WHERE f.trashed = 0 AND f.owner_id != ? AND (f.id IN (SELECT file_id FROM file_shares WHERE user_id = ?) OR (f.workspace_perm != 'none' AND ? != 'guest')) ORDER BY f.updated_at DESC`, u.id, u.id, u.role);
+    else if (view === 'shared') rows = all(`${base} WHERE f.trashed = 0 AND f.owner_id != ? AND (f.id IN (SELECT file_id FROM file_shares WHERE user_id = ?) OR (f.workspace_perm != 'none' AND ? != 'guest')) ORDER BY f.updated_at DESC`, u.id, u.id, u.role)
+      .filter((f) => filePerm(u, f) !== 'none'); // leaves out files inside a folder in the trash
     else if (view === 'recent') rows = all(`${base} WHERE f.trashed = 0 AND f.kind != 'folder' ORDER BY f.updated_at DESC LIMIT 400`).filter((f) => filePerm(u, f) !== 'none').slice(0, 40);
     else if (view === 'starred') rows = all(`${base} WHERE f.trashed = 0 AND f.starred = 1 AND f.owner_id = ? ORDER BY f.updated_at DESC`, u.id);
     else if (req.query.parent) {

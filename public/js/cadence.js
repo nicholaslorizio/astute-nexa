@@ -15,6 +15,9 @@
   const pad = (n) => String(n).padStart(2, '0');
   const dateVal = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
   const timeVal = (t) => { const d = new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  // This device's time zone, so repeating events keep their local weekday and hour.
+  const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })();
+  const tzq = TZ ? '&tz=' + encodeURIComponent(TZ) : '';
   const parseLocal = (date, time) => new Date(`${date}T${time || '00:00'}`).getTime();
 
   async function open(q) {
@@ -44,7 +47,7 @@
   }
   async function load() {
     const [from, to] = range();
-    try { const r = await api.get(`/api/events?from=${from.getTime()}&to=${to.getTime()}`); C.events = r.events; C.pending = r.pending; } catch (e) { fail(e); }
+    try { const r = await api.get(`/api/events?from=${from.getTime()}&to=${to.getTime()}${tzq}`); C.events = r.events; C.pending = r.pending; } catch (e) { fail(e); }
     if (!C) return;
     drawHead(); drawSide(); C.mode === 'month' ? drawMonth() : drawWeek();
   }
@@ -237,7 +240,7 @@
       const s0 = parseLocal(date.value, start.value), e0 = parseLocal(endDate.value, end.value);
       const day0 = startOfDay(s0).getTime() + 7 * HOUR, day1 = day0 + 13 * HOUR;
       try {
-        const r = await api.get(`/api/freebusy?users=${us.map((u) => u.id).join(',')}&from=${day0}&to=${day1}`);
+        const r = await api.get(`/api/freebusy?users=${us.map((u) => u.id).join(',')}&from=${day0}&to=${day1}${tzq}`);
         fb.append(h('div', { class: 'muted small', style: { margin: '4px 0' } }, 'Their day, 7 AM to 8 PM (red is busy, the outline is your pick)'));
         for (const u of us) {
           const strip = h('div', { class: 'fb-strip grow' });
@@ -265,7 +268,7 @@
       const s0 = ad ? parseLocal(date.value) : parseLocal(date.value, start.value);
       const e0 = ad ? parseLocal(endDate.value) + DAY - 60000 : parseLocal(endDate.value, end.value);
       if (!(e0 > s0)) { toast('The end has to be after the start.', 'bad'); return false; }
-      const body = { title: title.value, start_at: s0, end_at: e0, all_day: ad, recurrence: rec.value, location: loc.value, description: desc.value, color, huddle: huddle.checked, attendees: guests.value };
+      const body = { title: title.value, start_at: s0, end_at: e0, all_day: ad, recurrence: rec.value, location: loc.value, description: desc.value, color, huddle: huddle.checked, attendees: guests.value, ...(TZ ? { tz: TZ } : {}) };
       try {
         if (e.id) await api.patch('/api/events/' + e.id, body); else await api.post('/api/events', body);
         toast(e.id ? 'Event saved' : 'Event created'); if (C) { C.cursor = new Date(s0); load(); }

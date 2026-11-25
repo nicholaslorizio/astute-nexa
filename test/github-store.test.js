@@ -24,7 +24,14 @@ function fakeGithub() {
       if (req.headers.authorization !== 'Bearer tok') return send(401, { message: 'Bad credentials' });
       const u = new URL(req.url, 'http://x');
       let m;
+      if (req.method === 'GET' && (m = /\/git\/ref\/heads\/(.+)$/.exec(u.pathname))) {
+        if (!refs.size) return send(409, { message: 'Git Repository is empty.' });
+        const c = refs.get(decodeURIComponent(m[1]));
+        return c ? send(200, { object: { sha: c, type: 'commit' } }) : send(404, { message: 'Not Found' });
+      }
+      if (req.method === 'GET' && (m = /\/git\/commits\/(\w+)$/.exec(u.pathname))) return commits.has(m[1]) ? send(200, { sha: m[1], tree: { sha: commits.get(m[1]).tree } }) : send(404, {});
       if (req.method === 'GET' && (m = /\/git\/trees\/([^/]+)$/.exec(u.pathname))) {
+        if (trees.has(m[1])) return send(200, { tree: trees.get(m[1]) });
         const c = refs.get(decodeURIComponent(m[1]));
         if (!c) return send(409, { message: 'Git Repository is empty.' });
         return send(200, { tree: trees.get(commits.get(c).tree) });
@@ -70,7 +77,7 @@ test('saves workspaces to GitHub and brings them back on a fresh disk', async ()
     assert.equal(await s1.save(), 3);
     const before = gh.calls();
     assert.equal(await s1.save(), 0, 'nothing changed, nothing uploaded');
-    assert.equal(gh.calls(), before);
+    assert.equal(gh.calls() - before, 1, 'only one quick look at what is on GitHub');
     db1.prepare('INSERT INTO t (v) VALUES (?)').run('world');
     assert.equal(await s1.save(), 1, 'only the changed workspace goes up');
     db1.close(); db2.close();
@@ -99,6 +106,72 @@ test('saves workspaces to GitHub and brings them back on a fresh disk', async ()
     fs.rmSync(a, { recursive: true, force: true });
     gh.server.close();
   }
+});
+
+test('during a deploy, the old and new copies keep each other’s saves', async () => {
+  const gh = await fakeGithub();
+  gh.seed();
+  const quiet = () => {};
+  const dirs = [];
+  const tmp = (n) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'nexa-gh-' + n + '-')); dirs.push(d); return d; };
+  const store = (dataDir) => createGithubStore({ repo: 'nick/nexa-data', token: 'tok', dataDir, api: gh.api, log: quiet });
+  const add = (dataDir, name, text) => { const d = new DatabaseSync(path.join(dataDir, 'workspaces', name, 'nexa.db')); d.prepare('INSERT INTO t (v) VALUES (?)').run(text); d.close(); };
+  try {
+    // The old copy is running with two workspaces.
+    const a = tmp('old');
+    const oldCopy = store(a);
+    await oldCopy.restore();
+    makeWorkspace(a, 'acme', 'hello').close();
+    makeWorkspace(a, 'shared', 'one').close();
+    await oldCopy.save();
+
+    // The new copy starts and restores while the old one keeps running.
+    const b = tmp('new');
+    const newCopy = store(b);
+    assert.equal(await newCopy.restore(), 2);
+    const released = [];
+    newCopy.start({ release: (name) => { released.push(name); return true; }, fastMs: 1e9, fastForMs: 1e9 });
+
+    // In the overlap, people keep working on the old copy, a workspace is made there, and it saves as it stops.
+    add(a, 'acme', 'last minute');
+    makeWorkspace(a, 'fresh', 'made during deploy').close();
+    // Meanwhile on the new copy a workspace is made and another one is changed.
+    makeWorkspace(b, 'beta', 'new copy').close();
+    add(b, 'shared', 'two');
+    add(a, 'shared', 'old side');
+    await oldCopy.stop();
+
+    // The new copy's next save brings in the old copy's last work and keeps everything.
+    assert.ok(await newCopy.save() > 0);
+    assert.deepEqual(released, ['acme'], 'the open workspace is closed before its newer copy goes in');
+    assert.deepEqual(read(b, 'acme'), ['hello', 'last minute']);
+    assert.deepEqual(read(b, 'fresh'), ['made during deploy']);
+    await newCopy.stop();
+
+    // A later restart on a wiped disk finds every workspace.
+    const c = tmp('later');
+    assert.equal(await store(c).restore(), 4);
+    assert.deepEqual(read(c, 'acme'), ['hello', 'last minute']);
+    assert.deepEqual(read(c, 'fresh'), ['made during deploy']);
+    assert.deepEqual(read(c, 'beta'), ['new copy']);
+    assert.deepEqual(read(c, 'shared'), ['one', 'two'], 'a workspace changed on both copies keeps the running copy’s version');
+  } finally {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+    gh.server.close();
+  }
+});
+
+test('if GitHub cannot be reached at start, the error says to try again rather than stop', async () => {
+  const s = createGithubStore({ repo: 'nick/nexa-data', token: 'tok', dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'nexa-gh-down-')), api: 'http://127.0.0.1:9', log: () => {}, sleep: async () => {} });
+  const e = await s.restore().then(() => null, (x) => x);
+  assert.ok(e && /could not be reached/.test(e.message), String(e && e.message));
+  assert.ok(!e.permanent, 'a network problem is worth retrying');
+  const gh = await fakeGithub();
+  try {
+    const empty = createGithubStore({ repo: 'nick/nexa-data', token: 'tok', dataDir: os.tmpdir(), api: gh.api, log: () => {} });
+    const e2 = await empty.restore().then(() => null, (x) => x);
+    assert.ok(e2.permanent && /is empty/.test(e2.message), 'a settings problem is not retried');
+  } finally { gh.server.close(); }
 });
 
 test('refuses a bad repo name or a missing token', () => {
