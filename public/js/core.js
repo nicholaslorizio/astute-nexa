@@ -76,6 +76,7 @@ const ICONS = {
   folder: 'M3 7h7l2 2h9v10H3z',
   file: 'M6 3h9l5 5v13H6z M15 3v5h5',
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1 M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  back: 'M15 18l-6-6 6-6',
   play: 'M7 4l13 8-13 8z',
   image: 'M3 5h18v14H3z M3 16l5-5 4 4 3-3 6 6 M15.5 9.5h.01',
   text: 'M5 6V4h14v2 M12 4v16 M9 20h6',

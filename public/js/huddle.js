@@ -61,13 +61,13 @@
     const chans = r.channels.filter((c) => c.kind !== 'dm').sort((a, b) => a.name.localeCompare(b.name));
     const dms = r.channels.filter((c) => c.kind === 'dm').sort((a, b) => (b.last_at || 0) - (a.last_at || 0));
     S.side.append(h('div', { class: 'sect' }, 'Channels', me.role !== 'guest' ? h('button', { class: 'btn ghost icon sm', title: 'New channel', onclick: newChannel }, icon('plus', 14)) : null));
-    for (const c of chans) S.side.append(h('a', { class: 'h-item' + (c.id === S.id ? ' on' : '') + (c.unread ? ' unread' : ''), href: '#/huddle/' + c.id }, icon(c.kind === 'private' ? 'lock' : 'hash', 15), h('span', { class: 'grow ellipsis' }, c.name),
+    for (const c of chans) S.side.append(h('a', { class: 'h-item' + (c.id === S.id ? ' on' : '') + (c.unread ? ' unread' : ''), href: '#/huddle/' + c.id, onclick: () => S.root.classList.remove('list') }, icon(c.kind === 'private' ? 'lock' : 'hash', 15), h('span', { class: 'grow ellipsis' }, c.name),
       c.in_call ? h('span', { title: 'Call in progress', style: { color: 'var(--ok)' } }, icon('video', 14)) : null, c.unread ? h('span', { class: 'badge' }, c.unread) : null));
     if (S.browse.length) S.side.append(h('button', { class: 'h-item', style: { border: 0, background: 'none', width: '100%' }, onclick: browse }, icon('search', 15), h('span', { class: 'muted' }, `Browse ${S.browse.length} more`)));
     S.side.append(h('div', { class: 'sect' }, 'Direct messages', h('button', { class: 'btn ghost icon sm', title: 'New message', onclick: newDm }, icon('plus', 14))));
     for (const c of dms) {
       const p = c.people[0] || me;
-      S.side.append(h('a', { class: 'h-item' + (c.id === S.id ? ' on' : '') + (c.unread ? ' unread' : ''), href: '#/huddle/' + c.id }, avatar(p, 'sm'), h('span', { class: 'grow ellipsis' }, chanLabel(c)), c.unread ? h('span', { class: 'badge' }, c.unread) : null));
+      S.side.append(h('a', { class: 'h-item' + (c.id === S.id ? ' on' : '') + (c.unread ? ' unread' : ''), href: '#/huddle/' + c.id, onclick: () => S.root.classList.remove('list') }, avatar(p, 'sm'), h('span', { class: 'grow ellipsis' }, chanLabel(c)), c.unread ? h('span', { class: 'badge' }, c.unread) : null));
     }
     if (!dms.length) S.side.append(h('div', { class: 'muted small', style: { padding: '4px 10px' } }, 'Start one with the + button.'));
     Nexa.refreshBadges();
@@ -81,12 +81,15 @@
     S.chan = c;
     clear(S.main);
     const callBadge = h('span', { 'data-callbadge': '' });
+    S.root.classList.remove('list');
     const head = h('header', { class: 'h-head' },
+      h('button', { class: 'btn ghost icon sm h-back', 'aria-label': 'All conversations', onclick: () => S.root.classList.add('list') }, icon('back', 18)),
       c.kind === 'dm' ? avatar(c.people[0] || Nexa.state.user) : icon(c.kind === 'private' ? 'lock' : 'hash', 18),
       h('div', { class: 'grow' }, h('h3', {}, chanLabel(c)), c.topic ? h('div', { class: 'muted small ellipsis' }, c.topic) : null),
       callBadge,
       member ? h('button', { class: 'btn sm', onclick: () => Nexa.call.start(id, chanLabel(c), false) }, icon('phone', 15), 'Audio') : null,
       member ? h('button', { class: 'btn primary sm', onclick: () => Nexa.call.start(id, chanLabel(c), true) }, icon('video', 15), 'Video call') : null,
+      member && Nexa.state.user.role !== 'guest' ? h('button', { class: 'btn sm', title: 'Make a link someone without an account can use to join a call here', onclick: () => Nexa.call.invite(id) }, icon('link', 15), 'Call link') : null,
       h('button', { class: 'btn ghost icon sm', 'aria-label': 'Channel options', onclick: (e) => chanMenu(e.currentTarget, c, member) }, icon('more', 16)));
     S.list = h('div', { class: 'msgs' });
     const typing = h('div', { class: 'typing', 'data-typing': '' });
@@ -327,7 +330,7 @@
       C.el = h('div', { class: 'call' }, h('div', { class: 'row', style: { color: '#fff', padding: '10px 16px' } }, h('b', {}, label), h('span', { class: 'muted small', 'data-count': '' }), h('span', { class: 'grow' }),
         h('button', { class: 'btn ghost sm', style: { color: '#fff' }, onclick: () => C.el.classList.toggle('mini') }, 'Minimize')), grid,
         h('div', { class: 'call-bar' }, micB, camB, navigator.mediaDevices.getDisplayMedia ? shareB : null, btn('hand', 'Raise hand', () => { C.hand = !C.hand; this.state(); toast(C.hand ? 'Hand raised' : 'Hand lowered'); }),
-          btn('link', 'Invite someone to this call', () => this.invite(cid)), h('button', { class: 'btn leave', onclick: () => this.leave() }, icon('phone', 18), 'Leave')));
+          h('button', { class: 'btn invite', title: 'Invite someone to this call', onclick: () => this.invite(cid) }, icon('link', 18), 'Invite'), h('button', { class: 'btn leave', onclick: () => this.leave() }, icon('phone', 18), 'Leave')));
       Object.assign(C, { grid, micB, camB, shareB });
       document.body.append(C.el);
       this.tile('me', 'You', stream, true);

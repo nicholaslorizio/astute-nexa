@@ -673,7 +673,8 @@ function createServer(opts = {}) {
     if (!/^[a-z]+\.js$/.test(req.params.file)) return next();
     res.sendFile(path.join(__dirname, '..', 'shared', req.params.file));
   });
-  app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html', maxAge: opts.dev ? 0 : '1h' }));
+  // revalidate every time (a quick 304 when nothing changed), so an update reaches phones at once instead of up to an hour later
+  app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html', maxAge: 0 }));
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
   // eslint-disable-next-line no-unused-vars
