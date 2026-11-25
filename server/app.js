@@ -598,7 +598,7 @@ function createServer(opts = {}) {
   }));
 
   // ---------- Huddle REST ----------
-  const huddle = attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app, wrap });
+  const huddle = attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app, wrap, ice: opts.ice });
   attachRelayCadence({ store, auth, filePerm, audit, HttpError, app, wrap, huddle, smtpUrl: opts.smtpUrl, smtpFrom: opts.smtpFrom });
   vault = attachVault({ store, auth, filePerm, audit, HttpError, app, wrap, huddle, maxUpload, quotaBytes: opts.quotaBytes || 0, cleanContent, insertFile, meta, linkBase, workspaceQuotaBytes: opts.workspaceQuotaBytes || 0 });
 

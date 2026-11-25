@@ -30,7 +30,7 @@ Be clear about these before moving a team over.
 
 - **No live co-editing.** Two people can open the same file, and Nexa shows who else is in it. Saves are versioned, and if someone saved first you're told and nothing is lost, though you don't see each other's typing live.
 - **No incoming outside mail.** Relay delivers mail inside your workspace and can send out through an SMTP server you add. It does not receive mail from the internet yet.
-- **Calls are small.** Up to 8 people, connected directly to each other. Some office and mobile networks block direct connections and need a TURN relay server, which Nexa does not include yet.
+- **Calls are small.** Up to 8 people, connected directly to each other. Some office and mobile networks block direct connections; for those, add a TURN relay such as Cloudflare's free tier (see [deploy/RENDER.md](deploy/RENDER.md)).
 - **No native sync app.** Vault syncs through your computer's network drive feature (WebDAV) or `rclone`. There is no Nexa desktop client with files on demand. Windows only maps drives over HTTPS.
 - **Office files convert, they don't round-trip perfectly.** Text, tables, images, formulas, sheets and slides come through. Advanced features such as tracked changes, macros, pivot tables, animations and complex layouts are simplified or dropped.
 - **Spreadsheet depth.** 73 functions cover everyday sums, lookups, text, dates and logic. Pivot tables, macros and array formulas are not there.

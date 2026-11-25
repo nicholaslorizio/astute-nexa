@@ -255,97 +255,256 @@
   };
 
   // ======================= calls (WebRTC mesh, up to 8 people) =======================
-  const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+  // Browsers find each other through STUN, and through a TURN relay when the server has one
+  // (see server/ice.js). Without TURN, people behind strict office, hotel or mobile networks can't connect.
+  const FALLBACK_ICE = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }] };
+  let iceCache = null;
+  async function loadIce() {
+    if (iceCache && Date.now() - iceCache.at < 6 * 3600 * 1000) return iceCache.cfg;
+    try {
+      const r = await Promise.race([api.get('/api/call/ice'), new Promise((_, no) => setTimeout(() => no(new Error('slow')), 5000))]);
+      if (r && Array.isArray(r.iceServers) && r.iceServers.length) {
+        iceCache = { at: Date.now(), relay: !!r.relay, cfg: { iceServers: r.iceServers, iceTransportPolicy: r.iceTransportPolicy === 'relay' ? 'relay' : 'all' } };
+        return iceCache.cfg;
+      }
+    } catch { /* use the public STUN servers below */ }
+    return iceCache ? iceCache.cfg : FALLBACK_ICE;
+  }
+  const hasRelay = () => !!(iceCache && iceCache.relay);
+
+  const MIC_HELP = 'Allow the microphone for this site in your browser settings (on iPhone: Settings > Safari > Microphone), then try again.';
+  async function getMedia(video) {
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('Calls only work on a secure https address. Open Nexa from its https link and try again.', 'bad');
+      return null;
+    }
+    const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    const cam = { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } };
+    let first;
+    try { return { stream: await navigator.mediaDevices.getUserMedia({ audio, video: video ? cam : false }), video: !!video }; } catch (err) { first = err; }
+    const why = (e) => (e && e.name) || '';
+    if (video) {
+      // no camera, a camera that is busy or blocked: carry on with sound only
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio });
+        toast(why(first) === 'NotAllowedError' ? 'Camera access is blocked, so you joined with audio only.'
+          : why(first) === 'NotReadableError' ? 'Your camera is busy in another app, so you joined with audio only.'
+            : 'No camera found, so you joined with audio only.');
+        return { stream, video: false };
+      } catch (err) { first = err; }
+    }
+    const n = why(first);
+    toast(n === 'NotAllowedError' || n === 'SecurityError' ? 'Nexa needs your microphone for calls. ' + MIC_HELP
+      : n === 'NotFoundError' || n === 'OverconstrainedError' ? 'Nexa could not find a microphone on this device.'
+        : n === 'NotReadableError' ? 'Your microphone is busy in another app. Close that app and try again.'
+          : 'Nexa could not start your microphone. ' + MIC_HELP, 'bad');
+    return null;
+  }
+
+  // Older Safari and some browsers need the offer or answer made explicitly.
+  async function setLocal(pc) {
+    try { await pc.setLocalDescription(); } catch (err) {
+      if (!err || err.name !== 'TypeError') throw err;
+      await pc.setLocalDescription(await (pc.signalingState === 'have-remote-offer' ? pc.createAnswer() : pc.createOffer()));
+    }
+  }
+  const plain = (d) => (d && d.toJSON ? d.toJSON() : { type: d.type, sdp: d.sdp });
+  const connected = (pc) => pc.connectionState === 'connected' || ['connected', 'completed'].includes(pc.iceConnectionState);
   let C = null;
   Nexa.call = {
     async start(cid, label, video) {
       if (C) { if (C.cid === cid) { C.el.classList.remove('mini'); return; } await this.leave(); }
-      let stream;
-      try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false }); }
-      catch { try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); video = false; toast('No camera found, joining with audio only.'); } catch { return toast('Allow microphone access in your browser to join the call.', 'bad'); } }
-      C = { cid, label, stream, peers: new Map(), muted: false, video: !!video, screen: null, offs: [] };
+      if (this.starting) return;
+      this.starting = true;
+      let media, ice;
+      try { [media, ice] = await Promise.all([getMedia(video), loadIce()]); } finally { this.starting = false; }
+      if (!media) return;
+      const { stream } = media; video = media.video;
+      C = { cid, label, stream, ice, peers: new Map(), muted: false, video: !!video, screen: null, offs: [] };
       const grid = h('div', { class: 'call-grid' });
       const btn = (ic, title, fn, cls = '') => h('button', { class: 'btn ' + cls, title, 'aria-label': title, onclick: fn }, icon(ic, 18));
       const micB = btn('mic', 'Mute', () => this.toggleMic()), camB = btn('video', 'Camera', () => this.toggleCam()), shareB = btn('screen', 'Share screen', () => this.toggleScreen());
       C.el = h('div', { class: 'call' }, h('div', { class: 'row', style: { color: '#fff', padding: '10px 16px' } }, h('b', {}, label), h('span', { class: 'muted small', 'data-count': '' }), h('span', { class: 'grow' }),
         h('button', { class: 'btn ghost sm', style: { color: '#fff' }, onclick: () => C.el.classList.toggle('mini') }, 'Minimize')), grid,
-        h('div', { class: 'call-bar' }, micB, camB, shareB, btn('hand', 'Raise hand', () => { C.hand = !C.hand; this.state(); toast(C.hand ? 'Hand raised' : 'Hand lowered'); }),
+        h('div', { class: 'call-bar' }, micB, camB, navigator.mediaDevices.getDisplayMedia ? shareB : null, btn('hand', 'Raise hand', () => { C.hand = !C.hand; this.state(); toast(C.hand ? 'Hand raised' : 'Hand lowered'); }),
           btn('link', 'Copy call link', () => Nexa.copyText(location.origin + (Nexa.state.linkBase || '') + '/#/huddle/' + cid)), h('button', { class: 'btn leave', onclick: () => this.leave() }, icon('phone', 18), 'Leave')));
       Object.assign(C, { grid, micB, camB, shareB });
       document.body.append(C.el);
       this.tile('me', 'You', stream, true);
       if (!video) camB.classList.add('off');
       C.offs.push(
-        Nexa.rt.on('call.joined', (m) => { if (m.channel_id !== cid) return; this.count(m.participants); for (const p of m.peers) this.peer(p, (m.participants.find((x) => x.id === p) || {}).name, true); }),
-        Nexa.rt.on('call.peer', (m) => { if (m.channel_id !== cid) return; this.count(m.participants); this.peer(m.user_id, m.name, false); }),
-        Nexa.rt.on('call.left', (m) => { if (m.channel_id !== cid) return; this.count(m.participants); this.drop(m.user_id); }),
-        Nexa.rt.on('call.full', (m) => { if (m.channel_id === cid) { toast('This call is full (8 people).', 'bad'); this.leave(); } }),
-        Nexa.rt.on('call.signal', (m) => m.channel_id === cid && this.signal(m)),
-        Nexa.rt.on('call.state', (m) => { if (m.channel_id !== cid) return; const t = C.grid.querySelector(`[data-peer="${m.user_id}"] .name`); if (t) t.textContent = `${t.dataset.n}${m.muted ? ' 🔇' : ''}${m.hand ? ' ✋' : ''}`; }),
-        Nexa.rt.on('connected', () => C && Nexa.rt.send({ t: 'call.join', channel_id: cid })),
+        Nexa.rt.on('call.joined', (m) => {
+          if (!C || m.channel_id !== cid) return;
+          C.live = true; this.count(m.participants);
+          // anyone we still hold who left while we were offline is gone
+          for (const pid of [...C.peers.keys()]) if (!m.peers.includes(pid)) this.drop(pid);
+          // (re)connect to everyone in the call: after a dropped connection both sides start fresh
+          for (const p of m.peers) this.reset(p, (m.participants.find((x) => x.id === p) || {}).name);
+        }),
+        Nexa.rt.on('call.peer', (m) => { if (!C || m.channel_id !== cid) return; this.count(m.participants); this.reset(m.user_id, m.name); }),
+        Nexa.rt.on('call.left', (m) => { if (!C || m.channel_id !== cid) return; this.count(m.participants); this.drop(m.user_id); }),
+        Nexa.rt.on('call.full', (m) => { if (C && m.channel_id === cid) { toast('This call is full (8 people).', 'bad'); this.leave(); } }),
+        Nexa.rt.on('call.signal', (m) => { if (C && m.channel_id === cid) this.signal(m); }),
+        Nexa.rt.on('call.state', (m) => { if (!C || m.channel_id !== cid) return; const t = C.grid.querySelector(`[data-peer="${m.user_id}"] .name`); if (t) t.textContent = `${t.dataset.n}${m.muted ? ' 🔇' : ''}${m.hand ? ' ✋' : ''}`; }),
+        Nexa.rt.on('disconnected', () => { if (!C) return; C.live = false; const c = C.el.querySelector('[data-count]'); if (c) c.textContent = ' · reconnecting…'; }),
+        Nexa.rt.on('connected', () => { if (C) { Nexa.rt.send({ t: 'call.join', channel_id: cid }); this.state(); } }),
       );
       Nexa.rt.send({ t: 'call.join', channel_id: cid });
+      if (C.ac && C.ac.state === 'suspended') C.ac.resume().catch(() => {});
     },
     count(list) { const c = C && C.el.querySelector('[data-count]'); if (c) c.textContent = ` · ${list.length} in call`; },
     tile(key, name, stream, mine) {
       let t = C.grid.querySelector(`[data-peer="${key}"]`);
-      if (!t) { t = h('div', { class: 'tile', 'data-peer': key }, h('video', { autoplay: true, playsinline: true, muted: !!mine }), h('span', { class: 'name', 'data-n': name }, name)); C.grid.append(t); }
-      const v = t.querySelector('video'); v.srcObject = stream; v.muted = !!mine; if (mine) v.style.transform = 'scaleX(-1)';
-      v.play().catch(() => {});
-      this.speaking(t, stream);
+      if (!t) {
+        t = h('div', { class: 'tile', 'data-peer': key }, h('video', { autoplay: true, playsinline: true, muted: !!mine }),
+          h('span', { class: 'name', 'data-n': name }, name), h('span', { class: 'state', role: 'status' }));
+        C.grid.append(t);
+      }
+      const v = t.querySelector('video');
+      v.muted = !!mine; if (mine) v.style.transform = 'scaleX(-1)';
+      if (stream && v.srcObject !== stream) v.srcObject = stream;
+      if (stream) {
+        v.play().catch(() => { if (!mine) this.tapToPlay(t, v); });
+        this.speaking(t, stream);
+      }
       return t;
     },
+    // Phones and some browsers won't start sound until the person taps the page.
+    tapToPlay(t, v) {
+      if (t.querySelector('.tap')) return;
+      const b = h('button', { class: 'btn tap', type: 'button', onclick: () => { v.play().then(() => b.remove(), () => {}); if (C && C.ac) C.ac.resume().catch(() => {}); } }, 'Tap to turn on sound');
+      t.append(b);
+    },
+    status(pid, text, bad) {
+      const t = C && C.grid.querySelector(`[data-peer="${pid}"] .state`);
+      if (!t) return;
+      t.textContent = text || '';
+      t.classList.toggle('bad', !!bad);
+    },
     speaking(t, stream) {
-      if (!stream.getAudioTracks().length || !window.AudioContext) return;
+      if (t._meter === stream || !stream.getAudioTracks().length || !window.AudioContext) return;
+      t._meter = stream;
       try {
         C.ac = C.ac || new AudioContext();
         const an = C.ac.createAnalyser(); an.fftSize = 256; C.ac.createMediaStreamSource(stream).connect(an);
         const buf = new Uint8Array(an.frequencyBinCount);
-        const tick = () => { if (!C || !t.isConnected) return; an.getByteFrequencyData(buf); t.classList.toggle('speaking', buf.reduce((a, b) => a + b, 0) / buf.length > 18); requestAnimationFrame(tick); };
+        const tick = () => { if (!C || !t.isConnected || t._meter !== stream) return; an.getByteFrequencyData(buf); t.classList.toggle('speaking', buf.reduce((a, b) => a + b, 0) / buf.length > 18); requestAnimationFrame(tick); };
         tick();
       } catch { /* audio meter is optional */ }
     },
-    peer(pid, name, initiator) {
+    reset(pid, name) {
+      if (!C || pid === Nexa.state.user.id) return;
+      const old = C.peers.get(pid);
+      if (old) this.drop(pid, true);
+      return this.peer(pid, name || (old && old.name));
+    },
+    peer(pid, name) {
       if (C.peers.has(pid)) return C.peers.get(pid);
-      const pc = new RTCPeerConnection(ICE);
-      const p = { pc, name: name || 'Guest', polite: Nexa.state.user.id > pid, makingOffer: false };
+      let pc;
+      try { pc = new RTCPeerConnection(C.ice); } catch { pc = new RTCPeerConnection(FALLBACK_ICE); }
+      const p = { pc, name: name || 'Guest', polite: Nexa.state.user.id > pid, makingOffer: false, ignore: false, queue: Promise.resolve(), restarts: 0, timers: {}, remote: null };
       C.peers.set(pid, p);
+      this.tile(pid, p.name, null, false);
+      this.status(pid, 'Connecting…');
       for (const tr of (C.screen || C.stream).getTracks()) pc.addTrack(tr, C.stream);
       if (C.screen) for (const tr of C.stream.getAudioTracks()) pc.addTrack(tr, C.stream);
-      pc.onicecandidate = (e) => e.candidate && Nexa.rt.send({ t: 'call.signal', channel_id: C.cid, to: pid, data: { candidate: e.candidate } });
-      pc.ontrack = (e) => this.tile(pid, p.name, e.streams[0], false);
-      pc.onnegotiationneeded = async () => {
-        try { p.makingOffer = true; await pc.setLocalDescription(); Nexa.rt.send({ t: 'call.signal', channel_id: C.cid, to: pid, data: { description: pc.localDescription } }); } catch (err) { console.warn(err); } finally { p.makingOffer = false; }
+      const send = (data) => Nexa.rt.send({ t: 'call.signal', channel_id: C.cid, to: pid, data });
+      p.send = send;
+      pc.onicecandidate = (e) => { if (e.candidate && C && C.peers.get(pid) === p) send({ candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate }); };
+      pc.ontrack = (e) => {
+        let s = e.streams && e.streams[0];
+        if (!s) { s = p.remote || new MediaStream(); s.addTrack(e.track); }
+        p.remote = s;
+        this.tile(pid, p.name, s, false);
       };
-      pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') pc.restartIce(); };
-      if (!initiator) { /* the newcomer sends the offer; we wait */ }
+      pc.onnegotiationneeded = async () => {
+        try { p.makingOffer = true; await setLocal(pc); send({ description: plain(pc.localDescription) }); } catch (err) { console.warn('call offer', err); } finally { p.makingOffer = false; }
+      };
+      pc.onconnectionstatechange = () => this.watch(pid, p);
+      pc.oniceconnectionstatechange = () => this.watch(pid, p);
+      // still not connected after a while: tell the person instead of leaving a black tile
+      p.timers.first = setTimeout(() => { if (C && C.peers.get(pid) === p && !connected(pc)) this.giveUp(pid, p); }, 25000);
       return p;
     },
-    async signal(m) {
-      const p = C.peers.get(m.from) || this.peer(m.from, m.name, false);
-      const { pc } = p; const { description, candidate } = m.data;
+    watch(pid, p) {
+      if (!C || C.peers.get(pid) !== p) return;
+      const { pc } = p;
+      const st = pc.connectionState || pc.iceConnectionState;
+      if (connected(pc)) {
+        clearTimeout(p.timers.dc); clearTimeout(p.timers.retry);
+        p.restarts = 0; p.gaveUp = false;
+        this.status(pid, '');
+        return;
+      }
+      if (st === 'disconnected' || pc.iceConnectionState === 'disconnected') {
+        // often a brief network blip that heals on its own; restart if it doesn't
+        this.status(pid, 'Reconnecting…');
+        clearTimeout(p.timers.dc);
+        p.timers.dc = setTimeout(() => { if (C && C.peers.get(pid) === p && !connected(pc)) this.restart(pid, p); }, 5000);
+      } else if (st === 'failed' || pc.iceConnectionState === 'failed') this.restart(pid, p);
+    },
+    restart(pid, p) {
+      if (!C || C.peers.get(pid) !== p) return;
+      if (p.restarts >= 3) return this.giveUp(pid, p);
+      p.restarts++;
+      this.status(pid, 'Reconnecting…');
+      try { p.pc.restartIce(); } catch { return this.reset(pid, p.name); }
+      clearTimeout(p.timers.retry);
+      p.timers.retry = setTimeout(() => { if (C && C.peers.get(pid) === p && !connected(p.pc)) this.restart(pid, p); }, 12000);
+    },
+    giveUp(pid, p) {
+      if (!C || p.gaveUp) return;
+      p.gaveUp = true;
+      const why = !Nexa.rt.ws || Nexa.rt.ws.readyState !== 1 ? 'Your connection to Nexa dropped. Check your internet.'
+        : hasRelay() ? 'Check your internet connection, or try leaving and joining again.'
+          : 'Your network or theirs is blocking the call. Try a different Wi-Fi or mobile data.';
+      this.status(pid, `Can't connect to ${p.name}. ${why}`, true);
+      toast(`Can't connect to ${p.name}. ${why}`, 'bad');
+    },
+    signal(m) {
+      let p = C.peers.get(m.from);
+      const { description, candidate } = m.data || {};
+      if (!p) {
+        if (!description || description.type !== 'offer') return; // a stray message from a call that already ended
+        p = this.peer(m.from, m.name);
+      }
+      // handle one message at a time per person so answers and candidates never overtake each other
+      p.queue = p.queue.then(() => this.handleSignal(m.from, p, description, candidate));
+    },
+    async handleSignal(pid, p, description, candidate) {
+      if (!C || C.peers.get(pid) !== p) return;
+      const { pc } = p;
       try {
         if (description) {
           const collision = description.type === 'offer' && (p.makingOffer || pc.signalingState !== 'stable');
           p.ignore = !p.polite && collision;
           if (p.ignore) return;
+          if (collision) await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
           await pc.setRemoteDescription(description);
-          if (description.type === 'offer') { await pc.setLocalDescription(); Nexa.rt.send({ t: 'call.signal', channel_id: C.cid, to: m.from, data: { description: pc.localDescription } }); }
-        } else if (candidate) { try { await pc.addIceCandidate(candidate); } catch (err) { if (!p.ignore) throw err; } }
+          if (description.type === 'offer') { await setLocal(pc); p.send({ description: plain(pc.localDescription) }); }
+        } else if (candidate) {
+          try { await pc.addIceCandidate(candidate); } catch (err) { if (!p.ignore) console.warn('call candidate', err); }
+        }
       } catch (err) { console.warn('call signal', err); }
     },
-    drop(pid) { const p = C && C.peers.get(pid); if (p) { p.pc.close(); C.peers.delete(pid); } const t = C && C.grid.querySelector(`[data-peer="${pid}"]`); if (t) t.remove(); },
-    state() { Nexa.rt.send({ t: 'call.state', channel_id: C.cid, muted: C.muted, video: C.video, hand: !!C.hand }); },
+    drop(pid, keepTile) {
+      const p = C && C.peers.get(pid);
+      if (p) { for (const t of Object.values(p.timers)) clearTimeout(t); p.pc.onicecandidate = p.pc.ontrack = p.pc.onnegotiationneeded = p.pc.onconnectionstatechange = p.pc.oniceconnectionstatechange = null; p.pc.close(); C.peers.delete(pid); }
+      const t = C && C.grid.querySelector(`[data-peer="${pid}"]`);
+      if (t && !keepTile) t.remove();
+    },
+    state() { if (C) Nexa.rt.send({ t: 'call.state', channel_id: C.cid, muted: C.muted, video: C.video, hand: !!C.hand }); },
     toggleMic() { C.muted = !C.muted; C.stream.getAudioTracks().forEach((t) => { t.enabled = !C.muted; }); clear(C.micB).append(icon(C.muted ? 'micoff' : 'mic', 18)); C.micB.classList.toggle('off', C.muted); this.state(); },
     async toggleCam() {
       const vt = C.stream.getVideoTracks()[0];
       if (vt) { C.video = !C.video; vt.enabled = C.video; C.camB.classList.toggle('off', !C.video); this.state(); return; }
       try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: true });
+        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } });
         const t = s.getVideoTracks()[0]; C.stream.addTrack(t); C.video = true; C.camB.classList.remove('off');
         for (const p of C.peers.values()) p.pc.addTrack(t, C.stream);
         this.tile('me', 'You', C.stream, true);
-      } catch { toast('Nexa could not turn on your camera.', 'bad'); }
+        this.state();
+      } catch (err) { toast(err && err.name === 'NotAllowedError' ? 'Camera access is blocked. Allow the camera for this site in your browser settings.' : 'Nexa could not turn on your camera.', 'bad'); }
     },
     async toggleScreen() {
       if (C.screen) return this.stopScreen();
@@ -367,12 +526,13 @@
     async leave() {
       if (!C) return;
       Nexa.rt.send({ t: 'call.leave', channel_id: C.cid });
-      for (const p of C.peers.values()) p.pc.close();
+      for (const pid of [...C.peers.keys()]) this.drop(pid);
       C.stream.getTracks().forEach((t) => t.stop());
       if (C.screen) C.screen.getTracks().forEach((t) => t.stop());
       if (C.ac) C.ac.close().catch(() => {});
       C.offs.forEach((f) => f()); C.el.remove(); C = null;
     },
   };
-  addEventListener('beforeunload', () => { if (C) Nexa.rt.send({ t: 'call.leave', channel_id: C.cid }); });
+  // pagehide also fires on phones, where beforeunload often doesn't
+  for (const ev of ['beforeunload', 'pagehide']) addEventListener(ev, () => { if (C) Nexa.rt.send({ t: 'call.leave', channel_id: C.cid }); });
 })();

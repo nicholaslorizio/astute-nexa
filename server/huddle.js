@@ -2,14 +2,18 @@
 // Huddle: channels, direct messages, live events and call signaling over WebSocket.
 const { WebSocketServer } = require('ws');
 const A = require('./auth');
+const { createIce, iceFromEnv } = require('./ice');
+
+let sharedIce = null; // one TURN login cache for every workspace in this process
 
 const MAX_BODY = 8000;
 const CHANNEL_NAME = /^[a-z0-9][a-z0-9-_]{0,59}$/;
 
-function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app, wrap }) {
+function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app, wrap, ice }) {
   const { one, all, run, tx } = store;
   const sockets = new Map(); // userId -> Set<ws>
-  const calls = new Map(); // channelId -> Map<userId, {name, since}>
+  const calls = new Map(); // channelId -> Map<userId, {name, since, sockets: Set<ws>}>
+  const iceSvc = ice && typeof ice.forUser === 'function' ? ice : ice ? createIce(ice) : (sharedIce = sharedIce || createIce(iceFromEnv()));
   const fileWatchers = new Map(); // fileId -> Set<ws>
   let wss;
 
@@ -206,10 +210,20 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
   });
 
   // ---------- calls ----------
+  // Where browsers find each other: STUN, plus a TURN relay when one is set (see server/ice.js).
+  app.get('/api/call/ice', auth.requireUser, wrap(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await iceSvc.forUser(req.user.id));
+  }));
+
   const callList = (cid) => (calls.has(cid) ? [...calls.get(cid)].map(([id, v]) => ({ id, name: v.name, since: v.since })) : []);
-  function leaveCall(uid, cid) {
+  // A person stays in a call while any of their connections is in it. After a dropped connection the
+  // browser reconnects and joins again, sometimes before the server notices the old one is gone.
+  function leaveCall(uid, cid, ws) {
     const room = calls.get(cid);
     if (!room || !room.has(uid)) return;
+    const me = room.get(uid);
+    if (ws) { me.sockets.delete(ws); if (me.sockets.size) return; }
     room.delete(uid);
     if (!room.size) calls.delete(cid);
     broadcast(cid, { t: 'call.left', channel_id: cid, user_id: uid, participants: callList(cid) });
@@ -226,7 +240,20 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
       if (!user) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, user));
     });
+    // Drop connections that went quiet (a phone that lost signal, a laptop that slept) so the people
+    // still in a call see them leave instead of a frozen tile.
+    const beat = setInterval(() => {
+      for (const ws of wss.clients) {
+        if (ws.alive === false) { ws.terminate(); continue; }
+        ws.alive = false;
+        try { ws.ping(); } catch { /* closing */ }
+      }
+    }, 30000);
+    beat.unref();
+    wss.on('close', () => clearInterval(beat));
     wss.on('connection', (ws, user) => {
+      ws.alive = true;
+      ws.on('pong', () => { ws.alive = true; });
       ws.user = user;
       ws.calls = new Set();
       ws.files = new Set();
@@ -235,12 +262,15 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
       sockets.get(user.id).add(ws);
       if (first) broadcastAll({ t: 'presence', user_id: user.id, online: true });
       ws.send(JSON.stringify({ t: 'hello', user_id: user.id, online: online() }));
-      let budget = 60;
-      const refill = setInterval(() => { budget = 60; }, 10000);
+      // Call setup sends a burst of network candidates (more with a TURN relay), so call signals get
+      // their own, larger allowance and cannot crowd out or be crowded out by chat traffic.
+      let budget = 60, signals = 600;
+      const refill = setInterval(() => { budget = 60; signals = 600; }, 10000);
       ws.on('message', (raw) => {
-        if (--budget < 0) return;
+        ws.alive = true;
         let msg;
         try { msg = JSON.parse(raw); } catch { return; }
+        if (!msg || (msg.t === 'call.signal' ? --signals : --budget) < 0) return;
         // re-check the account is still active
         if (!one("SELECT 1 AS x FROM users WHERE id = ? AND status = 'active'", user.id)) return ws.close(4001, 'disabled');
         handle(ws, user, msg);
@@ -248,7 +278,7 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
       ws.on('close', () => {
         clearInterval(refill);
         if (closing) return; // shutting down: the database may already be closed
-        for (const cid of ws.calls) leaveCall(user.id, cid);
+        for (const cid of ws.calls) leaveCall(user.id, cid, ws);
         for (const fid of ws.files) { const s = fileWatchers.get(fid); if (s) { s.delete(ws); if (!s.size) fileWatchers.delete(fid); else notifyFile(fid, presenceForFile(fid)); } }
         const set = sockets.get(user.id);
         if (set) { set.delete(ws); if (!set.size) { sockets.delete(user.id); broadcastAll({ t: 'presence', user_id: user.id, online: false }); } }
@@ -294,14 +324,16 @@ function attachHuddle({ store, auth, filePerm, audit, HttpError, plainText, app,
         const room = calls.get(cid);
         if (room.size >= 8 && !room.has(user.id)) return ws.send(JSON.stringify({ t: 'call.full', channel_id: cid }));
         const peers = [...room.keys()].filter((id) => id !== user.id);
-        room.set(user.id, { name: user.name, since: Date.now() });
+        const me = room.get(user.id) || { name: user.name, since: Date.now(), sockets: new Set() };
+        me.sockets.add(ws);
+        room.set(user.id, me);
         ws.calls.add(cid);
         ws.send(JSON.stringify({ t: 'call.joined', channel_id: cid, peers, participants: callList(cid) }));
         broadcast(cid, { t: 'call.peer', channel_id: cid, user_id: user.id, name: user.name, participants: callList(cid) }, user.id);
         break;
       }
       case 'call.leave':
-        if (cid) { leaveCall(user.id, cid); ws.calls.delete(cid); }
+        if (cid) { leaveCall(user.id, cid, ws); ws.calls.delete(cid); }
         break;
       case 'call.signal': {
         // relay SDP / ICE to one peer who is in the same call

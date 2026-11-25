@@ -139,6 +139,9 @@ Set these as environment variables before you start Nexa. All are optional.
 | `NEXA_APPLE_CLIENT_ID`, `NEXA_APPLE_TEAM_ID`, `NEXA_APPLE_KEY_ID`, `NEXA_APPLE_PRIVATE_KEY_FILE` | none | Turn on Continue with Apple. |
 | `NEXA_GITHUB_REPO`, `NEXA_GITHUB_TOKEN` | none | With `NEXA_CLOUD`, keep workspaces in a private GitHub repo, for hosts whose disk is wiped on restart. See [deploy/RENDER.md](deploy/RENDER.md). |
 | `NEXA_MIN_FREE_MB` | `2048` | With `NEXA_CLOUD`, stop making new workspaces when free disk drops below this. |
+| `NEXA_TURN_CF_KEY_ID`, `NEXA_TURN_CF_API_TOKEN` | none | A Cloudflare TURN key, so calls connect on networks that block direct connections. See [deploy/RENDER.md](deploy/RENDER.md). |
+| `NEXA_TURN_URLS`, `NEXA_TURN_USERNAME`, `NEXA_TURN_CREDENTIAL` | none | Any other TURN server, with a fixed login. Use `NEXA_TURN_SECRET` instead of the user name and password for coturn's `use-auth-secret`. |
+| `NEXA_ICE_POLICY` | `all` | Set to `relay` to send every call through TURN, to check the relay works. |
 
 ## Security
 
