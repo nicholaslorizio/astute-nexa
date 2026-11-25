@@ -91,6 +91,8 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 550;
 .auth-foot { margin-top: 18px; color: var(--text-3); font-size: 13px; }
 .err { color: var(--bad); font-size: 13px; min-height: 18px; }
 @media (max-width: 860px) { .auth { grid-template-columns: 1fr; } .auth-hero { padding: 32px; min-height: 240px; } .auth-hero h1 { font-size: 32px; } }
+/* on a phone the sign-in card comes first, so nobody has to scroll past the banner to find it */
+@media (max-width: 600px) { .auth { display: flex; flex-direction: column; } .auth-card { order: -1; padding: 28px 20px; justify-content: flex-start; } .auth-hero { padding: 24px 20px; min-height: 0; gap: 16px; } .auth-hero h1 { font-size: 26px; } }
 
 /* ---------- shell ---------- */
 .shell { position: fixed; inset: 0; display: grid; grid-template-rows: var(--top) 1fr; }

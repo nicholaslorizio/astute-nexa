@@ -29,8 +29,8 @@
   </div>
   <div class="auth-card">
     <div class="tabs" role="tablist">
+      <button class="btn" role="tab" id="tab-open" aria-selected="false">Sign in</button>
       <button class="btn" role="tab" id="tab-new" aria-selected="true">New workspace</button>
-      <button class="btn" role="tab" id="tab-open" aria-selected="false">Open a workspace</button>
     </div>
 
     <section id="new">
@@ -50,17 +50,19 @@
         <p class="small bad" id="create-err" role="alert"></p>
         <button class="btn primary big" type="submit">Make my workspace</button>
       </form>
+      <p class="auth-foot">Already have a workspace? <a href="#open" id="to-open">Sign in</a></p>
     </section>
 
     <section id="open" hidden>
-      <h2>Open your workspace</h2>
-      <p class="muted" style="margin:0">Type the address your team uses.</p>
+      <h2>Sign in to your workspace</h2>
+      <p class="muted" style="margin:0">Type your workspace address, then sign in with your email and password on the next page.</p>
+      <div id="last" class="col" style="gap:8px;margin-top:18px" hidden></div>
       <form id="open-form">
         <label class="field">Workspace address
           <span class="addr"><span id="host2"></span><input class="input" name="name" required placeholder="your-team" autocomplete="off" spellcheck="false"></span>
         </label>
         <p class="small bad" id="open-err" role="alert"></p>
-        <button class="btn primary big" type="submit">Open</button>
+        <button class="btn primary big" type="submit">Continue</button>
       </form>
     </section>
     <p class="auth-foot"><a href="https://github.com/nicholaslorizio/astute-nexa" rel="noopener">Source code</a> · <a href="https://nicholaslorizio.github.io/nexa/" rel="noopener">Get the desktop app</a></p>

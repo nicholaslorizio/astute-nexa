@@ -10,6 +10,7 @@
   }
   tabs.new.onclick = () => show('new');
   tabs.open.onclick = () => show('open');
+  $('to-open').onclick = (e) => { e.preventDefault(); show('open'); $('open-form').elements.namedItem('name').focus(); };
   if (location.hash === '#open') show('open');
 
   const cf = $('create-form');
@@ -32,6 +33,15 @@
   const size = (b) => (b >= 1024 ** 3 ? +(b / 1024 ** 3).toFixed(1) + ' GB' : Math.round(b / 1024 ** 2) + ' MB');
   fetch('/cloud/config').then((r) => r.json()).then((c) => {
     if (c.workspaceBytes > 0) $('quota').textContent = 'Each workspace gets ' + size(c.workspaceBytes) + '.';
+    if (c.current) {
+      // this browser has opened a workspace before: lead with signing back in to it
+      show('open');
+      $('open-form').elements.namedItem('name').value = c.current;
+      const b = document.createElement('a');
+      b.className = 'btn primary big'; b.href = '/w/' + encodeURIComponent(c.current); b.textContent = 'Go to ' + c.current;
+      const or = document.createElement('p'); or.className = 'muted small'; or.style.textAlign = 'center'; or.style.margin = '2px 0'; or.textContent = 'or type another address';
+      $('last').append(b, or); $('last').hidden = false;
+    }
     const list = (c.sso || []).filter((p) => names[p]);
     if (!list.length) return;
     const box = $('sso-new');
