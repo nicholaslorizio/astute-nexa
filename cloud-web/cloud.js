@@ -29,7 +29,9 @@
   });
 
   const names = { google: 'Continue with Google', apple: 'Continue with Apple' };
+  const size = (b) => (b >= 1024 ** 3 ? +(b / 1024 ** 3).toFixed(1) + ' GB' : Math.round(b / 1024 ** 2) + ' MB');
   fetch('/cloud/config').then((r) => r.json()).then((c) => {
+    if (c.workspaceBytes > 0) $('quota').textContent = 'Each workspace gets ' + size(c.workspaceBytes) + '.';
     const list = (c.sso || []).filter((p) => names[p]);
     if (!list.length) return;
     const box = $('sso-new');

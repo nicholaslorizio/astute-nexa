@@ -130,7 +130,7 @@ function createCloud(opts = {}) {
   const web = express();
   web.disable('x-powered-by');
   web.use((req, res, next) => { headers(res); next(); });
-  web.get('/cloud/config', (req, res) => res.json({ sso: ssoList, full: count() >= maxWorkspaces }));
+  web.get('/cloud/config', (req, res) => res.json({ sso: ssoList, full: count() >= maxWorkspaces, workspaceBytes: opts.workspaceQuotaBytes ?? 1024 ** 3 }));
   web.get('/cloud/check', (req, res) => {
     const n = String(req.query.name || '');
     res.json({ ok: validName(n) && !exists(n), exists: exists(n), reason: !validName(n) ? 'Use 3 to 32 lowercase letters, numbers or dashes.' : exists(n) ? 'That address is taken. Try another.' : null });
