@@ -85,6 +85,7 @@ test('cloud: many workspaces from one link, kept apart', async (t) => {
     assert.equal(page.status, 200);
     assert.match(page.text, /Make your workspace/);
     assert.deepEqual((await anon.get('/cloud/config')).body.sso, []);
+    assert.equal((await anon.get('/cloud/config')).body.workspaceBytes, 1024 ** 3, 'the start page shows the real workspace size');
     assert.equal((await anon.get('/css/nexa.css')).status, 200);
     assert.equal((await anon.get('/api/state')).status, 404);
   });
