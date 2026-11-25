@@ -199,6 +199,11 @@ test('guest call links', async (t) => {
     assert.match(page.buf.toString(), /guest-call\.js/);
     assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
     assert.equal(page.headers.get('cache-control'), 'no-store');
+    // app files revalidate every time, so an update reaches phones at once
+    const js = await srv.client().get('/js/huddle.js');
+    assert.match(js.headers.get('cache-control'), /max-age=0/);
+    assert.ok(js.headers.get('etag'));
+    assert.match(js.buf.toString(), /Call link/);
     const info = await srv.client().get('/api/guest/call/' + token);
     assert.equal(info.status, 200);
     assert.deepEqual(Object.keys(info.body).sort(), ['expiresAt', 'host']);

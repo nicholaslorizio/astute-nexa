@@ -140,7 +140,7 @@ function createCloud(opts = {}) {
     const n = String(req.query.name || '');
     res.json({ ok: validName(n) && !exists(n), exists: exists(n), reason: !validName(n) ? 'Use 3 to 32 lowercase letters, numbers or dashes.' : exists(n) ? 'That address is taken. Try another.' : null });
   });
-  web.use('/cloud', express.static(path.join(__dirname, '..', 'cloud-web'), { index: 'index.html', maxAge: '1h' }));
+  web.use('/cloud', express.static(path.join(__dirname, '..', 'cloud-web'), { index: 'index.html', maxAge: 0 }));
 
   web.get('/sso/:p/start', (req, res) => {
     const p = req.params.p, cfg = sso[p];
@@ -229,7 +229,7 @@ function createCloud(opts = {}) {
   web.post('/sso/:p/callback', express.urlencoded({ extended: false, limit: '64kb' }), (req, res, next) => callback(req, res).catch(next));
 
   // Files the start page and share pages need (styles, icons) come from the normal web folder.
-  web.use(express.static(path.join(__dirname, '..', 'public'), { index: false, maxAge: '1h' }));
+  web.use(express.static(path.join(__dirname, '..', 'public'), { index: false, maxAge: 0 }));
   web.use('/api', (req, res) => res.status(404).json({ error: 'Open your workspace first.' }));
   web.use((req, res) => page(res, 404, 'Not found', 'There is nothing at this address.'));
   // eslint-disable-next-line no-unused-vars

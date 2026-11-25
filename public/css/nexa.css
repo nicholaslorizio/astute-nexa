@@ -431,3 +431,18 @@ table.sheet tr.frozen th, table.sheet tr.frozen td { position: sticky; top: 27px
 
 .home-foot { text-align: center; padding: 28px 0 8px; }
 .home-foot a { color: inherit; text-decoration: underline; }
+/* Huddle on phones: one pane at a time, with a back button to the list, and buttons that wrap instead of falling off screen */
+.h-back { display: none; }
+.h-head { flex-wrap: wrap; }
+.call-bar { flex-wrap: wrap; }
+.call-bar .btn.invite { padding: 0 16px; gap: 6px; }
+@media (max-width: 600px) {
+  .huddle .h-side { display: none; }
+  .huddle.list .h-side { display: block; width: 100%; border-right: 0; }
+  .huddle.list .h-main { display: none; }
+  .h-back { display: inline-flex; }
+  .h-head { padding: 8px 10px; gap: 8px; }
+  .h-head .grow { flex-basis: 50%; }
+  .call-bar { gap: 8px; padding: 10px 8px; }
+  .call-bar .btn[aria-label="Raise hand"] { display: none; }
+}
