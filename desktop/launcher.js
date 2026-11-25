@@ -31,6 +31,7 @@ function alertBox(text) {
   try {
     if (isWin) spawnSync('mshta', [`vbscript:Execute("MsgBox ""${text.replace(/"/g, "'")}"",16,""Astute Nexa"":close")`]);
     else if (isMac) spawnSync('osascript', ['-e', `display alert "Astute Nexa" message "${text.replace(/"/g, "'")}"`]);
+    else spawnSync('zenity', ['--error', '--title=Astute Nexa', `--text=${text}`]);
   } catch { /* nothing more we can do */ }
 }
 

@@ -8,7 +8,7 @@
 
 <h2 align="center"><a href="https://github.com/nicholaslorizio/astute-nexa/raw/main/download/Astute-Nexa-Setup.exe">Download free for Windows</a></h2>
 
-<p align="center">Windows 10 and 11 · 29 MB · nothing else to install</p>
+<p align="center">Windows 10 and 11 · 29 MB · nothing else to install<br>Also for <a href="#mac">Mac</a> and <a href="#linux">Linux</a></p>
 
 1. Click **Download free for Windows** above.
 2. Open the file. If your browser asks, choose **Keep**.
@@ -16,6 +16,23 @@
 4. Click **Next**, **Install**, **Finish**. Nexa opens in its own window and adds itself to your Start menu and desktop.
 
 Your files stay on your computer, in `%LOCALAPPDATA%\Astute Nexa`. Uninstalling Nexa keeps them.
+
+## Mac
+
+<p><b><a href="https://github.com/nicholaslorizio/astute-nexa/raw/main/download/Astute-Nexa-Mac-AppleSilicon.zip">Download for Mac with Apple silicon (M1 or newer)</a></b> · <b><a href="https://github.com/nicholaslorizio/astute-nexa/raw/main/download/Astute-Nexa-Mac-Intel.zip">Download for Mac with Intel</a></b><br>macOS 11 or newer · about 60 MB · not sure which? Apple menu &gt; About This Mac shows "Chip: Apple" or "Processor: Intel".</p>
+
+1. Open the zip, then drag **Astute Nexa** into your **Applications** folder.
+2. Double-click **Astute Nexa**. macOS warns that it can't verify the app, because Nexa is new and not yet signed. Click **Done**.
+3. Open **System Settings > Privacy & Security**, scroll down and click **Open Anyway** next to Astute Nexa, then enter your Mac password and click **Open**. You only do this once.
+
+On macOS 14 or older, Control-click the app, choose **Open**, then **Open** again. Nexa opens in its own window when Chrome, Edge or Brave is installed, and in Safari otherwise. Your files stay in `~/Library/Application Support/Astute Nexa`.
+
+## Linux
+
+- **Ubuntu, Debian, Mint, Pop!_OS:** <b><a href="https://github.com/nicholaslorizio/astute-nexa/raw/main/download/astute-nexa_0.1.0_amd64.deb">download the .deb</a></b> (37 MB), double-click it and click **Install**, then open Astute Nexa from your app menu.
+- **Any other 64-bit Linux:** <b><a href="https://github.com/nicholaslorizio/astute-nexa/raw/main/download/Astute-Nexa-Linux-x64.tar.gz">download the .tar.gz</a></b> (62 MB), unpack it and run `./install.sh` in the folder. It installs for your user with no password and adds Astute Nexa to your app menu.
+
+Nexa opens in its own window when Chrome, Chromium, Edge or Brave is installed. Your files stay in `~/.astute-nexa`.
 
 The Windows app runs on your PC only, so you can try every app on your own. Chat and calls between users come with the cloud version, which is on the way. A team that wants to work together today can run Nexa on a server, as shown below.
 
